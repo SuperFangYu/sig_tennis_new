@@ -36,9 +36,9 @@ PROMINENCE_THRESHOLD = 80.0
 MIN_DISTANCE_SEC = 2.5
 PRE_TOSS_BUFFER = 1.8
 POST_HIT_BUFFER = 1.5
-TOSS_HEIGHT_THRESHOLD = 180
-RACKET_DROP_DEPTH = 150
-MIN_SCORE_THRESHOLD = 0.1
+TOSS_HEIGHT_THRESHOLD = 120
+RACKET_DROP_DEPTH = 90
+MIN_SCORE_THRESHOLD = 0.05
 
 COLOR_PREP = "#cfe8ff"
 COLOR_TOSS_SWING = "#fff2b2"
@@ -143,6 +143,53 @@ def _detect_event_chain(
     }
 
 
+def _build_relaxed_event_chain(
+    p: int,
+    toss_wrist_y: np.ndarray,
+    racket_y: np.ndarray,
+    speed: np.ndarray,
+    fps: int,
+) -> Optional[Dict[str, int]]:
+    """以击球高点 ``p`` 为锚点构造宽松事件链，避免真实发球被整段丢弃。"""
+    n = len(racket_y)
+    hit_idx = int(np.clip(p, 0, n - 1))
+    min_gap = max(1, int(0.1 * fps))
+    if hit_idx < min_gap * 2:
+        return None
+
+    search_start = max(0, hit_idx - int(2.5 * fps))
+    wrist_end = max(search_start + 1, hit_idx - min_gap)
+    wrist_seg = toss_wrist_y[search_start:wrist_end]
+    if wrist_seg.size and np.any(np.isfinite(wrist_seg)):
+        toss_idx = search_start + int(np.nanargmin(wrist_seg))
+    else:
+        toss_idx = max(search_start, hit_idx - int(1.2 * fps))
+    toss_idx = min(toss_idx, hit_idx - min_gap * 2)
+
+    drop_start = toss_idx + min_gap
+    drop_end = hit_idx - min_gap
+    if drop_end <= drop_start:
+        drop_idx = toss_idx + max(1, (hit_idx - toss_idx) // 2)
+    else:
+        racket_seg = racket_y[drop_start : drop_end + 1]
+        if racket_seg.size and np.any(np.isfinite(racket_seg)):
+            drop_idx = drop_start + int(np.nanargmax(racket_seg))
+        else:
+            drop_idx = drop_start + (drop_end - drop_start) // 2
+
+    follow_end_idx = search_end_idx(speed, hit_idx, fps, max_fwd_sec=1.5, speed_pct=30.0)
+    follow_end_idx = min(n - 1, max(follow_end_idx, hit_idx + int(0.2 * fps)))
+    if not (toss_idx < drop_idx < hit_idx < follow_end_idx):
+        return None
+
+    return {
+        "toss_idx": int(toss_idx),
+        "drop_idx": int(drop_idx),
+        "hit_idx": int(hit_idx),
+        "follow_end_idx": int(follow_end_idx),
+    }
+
+
 def _evaluate_serve_candidate(
     df: pd.DataFrame,
     p: int,
@@ -159,10 +206,14 @@ def _evaluate_serve_candidate(
     toss_thr = _toss_height_threshold(df, body_center_y, toss_wrist_y)
     drop_thr = _drop_depth_threshold(racket_y)
 
+    relaxed_reasons: List[str] = []
     if enhanced:
         chain = _detect_event_chain(p, toss_wrist_y, racket_y, speed, time_axis, fps)
         if chain is None:
-            return False, None, "事件链不完整"
+            chain = _build_relaxed_event_chain(p, toss_wrist_y, racket_y, speed, fps)
+            if chain is None:
+                return False, None, "事件窗口不足"
+            relaxed_reasons.append("事件链顺序不完整")
 
         toss_idx = chain["toss_idx"]
         hit_idx = chain["hit_idx"]
@@ -171,13 +222,18 @@ def _evaluate_serve_candidate(
 
         toss_height_diff = float(body_center_y[toss_idx] - toss_wrist_y[toss_idx])
         if not np.isfinite(toss_height_diff) or toss_height_diff < toss_thr:
-            return False, None, "抛球过低"
+            relaxed_reasons.append("抛球高度不足")
 
-        drop_depth = float(np.nanmax(racket_y[toss_idx:hit_idx]) - racket_y[hit_idx])
+        drop_seg = racket_y[toss_idx:hit_idx]
+        drop_depth = (
+            float(np.nanmax(drop_seg) - racket_y[hit_idx])
+            if drop_seg.size and np.any(np.isfinite(drop_seg)) and np.isfinite(racket_y[hit_idx])
+            else float("nan")
+        )
         if not np.isfinite(drop_depth) or drop_depth < drop_thr:
-            return False, None, "无明显挠背"
+            relaxed_reasons.append("挠背深度不足")
 
-        chain_bonus = 1.0
+        chain_bonus = 0.7 if relaxed_reasons else 1.0
     else:
         search_start = max(0, p - int(2.5 * fps))
         wrist_seg = toss_wrist_y[search_start:p]
@@ -192,9 +248,9 @@ def _evaluate_serve_candidate(
         drop_depth = float(np.nanmax(racket_y[toss_idx:hit_idx]) - racket_y[hit_idx]) if hit_idx > toss_idx else 0.0
 
         if not np.isfinite(toss_height_diff) or toss_height_diff < toss_thr:
-            return False, None, "抛球过低"
+            relaxed_reasons.append("抛球高度不足")
         if not np.isfinite(drop_depth) or drop_depth < drop_thr:
-            return False, None, "无明显挠背"
+            relaxed_reasons.append("挠背深度不足")
         chain_bonus = 0.5
 
     start_idx = _search_serve_start_idx(df, side_cols, toss_idx, fps, speed)
@@ -243,8 +299,11 @@ def _evaluate_serve_candidate(
         "toss_height_diff": toss_height_diff,
         "drop_depth": drop_depth,
         "peak": p,
+        "chain_mode": "relaxed" if relaxed_reasons else "complete",
+        "relaxed_reasons": relaxed_reasons,
     }
-    return True, event, "ok"
+    reason = "；".join(relaxed_reasons) if relaxed_reasons else "ok"
+    return True, event, reason
 
 
 def run_segmentation(
@@ -335,7 +394,11 @@ def run_segmentation(
             print(f"  [过滤] 击球: {float(time_axis[p]):5.2f}s | {reason}")
             continue
 
-        if event["score"] < MIN_SCORE_THRESHOLD and has_enhanced:
+        if (
+            event["score"] < MIN_SCORE_THRESHOLD
+            and has_enhanced
+            and event.get("chain_mode") == "complete"
+        ):
             other_peaks.append(p)
             print(f"  [过滤] 击球: {float(time_axis[p]):5.2f}s | 角度评分过低 ({event['score']:.2f})")
             continue
@@ -348,9 +411,13 @@ def run_segmentation(
 
         candidates.append(event)
         serve_hit_peaks.append(p)
+        mode_text = "完整事件链" if event.get("chain_mode") == "complete" else "宽松事件链"
+        reason_text = ""
+        if event.get("relaxed_reasons"):
+            reason_text = f" | 兜底: {'；'.join(event['relaxed_reasons'])}"
         print(
             f"  [保留] 击球: {event['hit_time']:5.2f}s | 抛球高差: {event['toss_height_diff']:4.0f}px | "
-            f"挠背深度: {event['drop_depth']:4.0f}px | 评分: {event['score']:.2f}"
+            f"挠背深度: {event['drop_depth']:4.0f}px | 评分: {event['score']:.2f} | {mode_text}{reason_text}"
         )
 
     candidates.sort(key=lambda x: x["score"], reverse=True)
@@ -414,6 +481,8 @@ def run_segmentation(
                 "racket_drop_time": ev["drop_time"],
                 "toss_height_diff": ev["toss_height_diff"],
                 "drop_depth": ev["drop_depth"],
+                "event_chain_mode": ev.get("chain_mode", "complete"),
+                "event_chain_notes": "；".join(ev.get("relaxed_reasons") or []),
             },
         )
         kinematic_summaries.append(summary)
