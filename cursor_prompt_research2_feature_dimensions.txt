@@ -1,0 +1,666 @@
+请你作为代码修改助手，帮助我修改一个“基于普通视频的网球动作分析系统”的算法采集层。当前任务只做第一步：扩展并规范研究二所需的数据维度，尤其是球拍五点、人体关键点坐标和人体运动学角度。先不要重写前端展示，也不要大改切分算法。目标是先把后续动作识别、自动切分和运动学分析需要的数据采集齐、字段命名统一、接口兼容。
+
+一、项目背景
+
+系统当前流程大致为：
+
+1. YOLO 球拍模型检测球拍关键点。
+2. RTMPose Halpe-26 提取人体关键点。
+3. rtmpose_csv.py 导出人体角度和少量位置字段。
+4. point_track.py 导出球拍轨迹 CSV。
+5. segmentation.py 根据球拍轨迹和人体角度做四类动作切分。
+6. 后端和前端展示切分片段、轨迹图、动力链图等。
+
+当前已有四类动作：
+
+- forehand 正手
+- backhand 反手
+- serve 发球
+- volley 截击
+
+这次请优先修改算法侧的数据采集文件，例如：
+
+- algorithm/*/point_track.py
+- algorithm/*/rtmpose_csv.py
+- 或项目中实际负责球拍轨迹、人姿态 CSV 输出的对应文件
+
+不要修改：
+
+- Vue 前端页面
+- backend routers
+- backend services/pipeline.py 的外部调用方式
+- schemas.py 响应结构
+- API 路径
+- 原有 artifacts kind
+- 原有前端依赖的基础字段
+
+要求是“扩展内核数据维度，保持外在接口尽量不变”。
+
+二、当前问题
+
+目前球拍 YOLO 模型内部可以检测 5 个关键点：
+
+- t：拍头
+- l：拍框左侧
+- r：拍框右侧
+- b：拍框底部
+- h：拍柄
+
+但当前 CSV 只导出了拍头 t 的坐标：
+
+- frame
+- time
+- x_raw
+- y_raw
+- x_interp
+- y_interp
+- x_clean
+- y_clean
+
+人体侧 RTMPose 使用 Halpe-26，但当前只导出了少量派生字段：
+
+- body_center_x
+- body_center_y
+- right_elbow_angle
+- left_elbow_angle
+- right_knee_angle
+- left_knee_angle
+- shoulder_hip_angle
+
+部分动作还有额外字段：
+
+- backhand: shoulder_turn_x_diff
+- serve: left_wrist_y, right_wrist_y, shoulder_tilt_y
+- volley: left_wrist_y, right_wrist_y
+
+这些字段不足以支撑后续更完整的“动作识别、自动切分与运动学分析”。请扩展导出维度。
+
+三、总原则
+
+1. 旧字段必须保留，保证旧 segmentation.py 和前端不立刻崩。
+2. 新字段采用清晰、稳定、统一的命名。
+3. 所有新增字段在检测失败时允许为 NaN。
+4. 插值和平滑不要强行填充置信度极低的点，要保留原始字段和清洗字段。
+5. 新增维度用于研究二的 2D 运动学分析，不要命名成真实 3D 动力学。
+6. 注释或变量说明中建议使用 “2D kinematic feature/proxy” 或“图像平面运动学特征”。
+7. 不要把普通单目 2D 视频说成可以直接得到真实 3D 动力学。
+
+四、球拍侧请扩展为五点导出
+
+请修改 point_track.py 或对应球拍追踪文件，将 YOLO 检出的 5 个球拍关键点全部写入 CSV。
+
+五个点：
+
+- t：拍头
+- l：拍框左侧
+- r：拍框右侧
+- b：拍框底部
+- h：拍柄
+
+建议导出字段：
+
+基础字段：
+
+- frame
+- time
+
+每个点都导出 raw 坐标：
+
+- t_x_raw, t_y_raw, t_conf
+- l_x_raw, l_y_raw, l_conf
+- r_x_raw, r_y_raw, r_conf
+- b_x_raw, b_y_raw, b_conf
+- h_x_raw, h_y_raw, h_conf
+
+每个点都导出插值坐标：
+
+- t_x_interp, t_y_interp
+- l_x_interp, l_y_interp
+- r_x_interp, r_y_interp
+- b_x_interp, b_y_interp
+- h_x_interp, h_y_interp
+
+每个点都导出平滑坐标：
+
+- t_x_clean, t_y_clean
+- l_x_clean, l_y_clean
+- r_x_clean, r_y_clean
+- b_x_clean, b_y_clean
+- h_x_clean, h_y_clean
+
+为了兼容旧代码，请继续保留旧字段，并让旧字段等价于拍头 t：
+
+- x_raw = t_x_raw
+- y_raw = t_y_raw
+- x_interp = t_x_interp
+- y_interp = t_y_interp
+- x_clean = t_x_clean
+- y_clean = t_y_clean
+
+五、球拍侧建议新增派生特征
+
+可以在 CSV 中直接导出，或在后续 segmentation.py 中计算。但如果实现方便，建议在球拍 CSV 中导出以下 2D 球拍运动学特征：
+
+1. 拍头速度
+
+- racket_head_vx
+- racket_head_vy
+- racket_head_speed
+
+计算来源：
+
+- t_x_clean, t_y_clean
+- time
+
+2. 拍头加速度
+
+- racket_head_ax
+- racket_head_ay
+- racket_head_acc
+
+3. 球拍长轴角
+
+- racket_long_axis_angle
+
+建议计算：
+
+- 从 h 点指向 t 点的向量角度
+- atan2(t_y_clean - h_y_clean, t_x_clean - h_x_clean)
+
+含义：
+
+- 图像平面内球拍长轴方向
+- 可用于判断发球、截击、正反手中的球拍姿态变化
+
+4. 球拍宽轴/拍面代理角
+
+- racket_width_axis_angle
+
+建议计算：
+
+- 从 l 点指向 r 点的向量角度
+- atan2(r_y_clean - l_y_clean, r_x_clean - l_x_clean)
+
+含义：
+
+- 图像平面内拍框宽轴方向
+- 只能作为 2D 拍面方向代理，不能写成真实三维拍面朝向
+
+5. 拍框中心或球拍中心
+
+- racket_center_x
+- racket_center_y
+
+建议计算：
+
+- 可用 t/l/r/b 的 clean 坐标均值
+- 如果某些点缺失，则对可用点求均值
+
+6. 球拍五点检测质量
+
+- racket_valid_kpt_count
+- racket_mean_conf
+
+含义：
+
+- 当前帧有效球拍关键点数量
+- 当前帧平均置信度
+
+这些字段有助于后续判断某一帧球拍姿态是否可靠。
+
+六、人体侧请导出关键点坐标
+
+请修改 rtmpose_csv.py 或对应人体姿态输出文件。不要只导出角度，请导出研究二所需的核心人体关键点坐标。
+
+至少导出以下关键点的 x/y/conf：
+
+- left_shoulder_x, left_shoulder_y, left_shoulder_conf
+- right_shoulder_x, right_shoulder_y, right_shoulder_conf
+- left_elbow_x, left_elbow_y, left_elbow_conf
+- right_elbow_x, right_elbow_y, right_elbow_conf
+- left_wrist_x, left_wrist_y, left_wrist_conf
+- right_wrist_x, right_wrist_y, right_wrist_conf
+- left_hip_x, left_hip_y, left_hip_conf
+- right_hip_x, right_hip_y, right_hip_conf
+- left_knee_x, left_knee_y, left_knee_conf
+- right_knee_x, right_knee_y, right_knee_conf
+- left_ankle_x, left_ankle_y, left_ankle_conf
+- right_ankle_x, right_ankle_y, right_ankle_conf
+
+这些点是计算肩、肘、髋、膝角和身体中心的最低必要集合。
+
+如果代码中已经能拿到 Halpe-26 全部关键点，也可以额外导出全量关键点，但这不是必须。必须优先保证上面 12 个核心关键点坐标存在。
+
+七、人体侧核心角度：请扩展为 8 个左右关节角 + 1 个肩髋分离角
+
+请在 rtmpose_csv.py 中计算并导出以下 9 个角度。
+
+1. 左肩角
+
+字段名：
+
+- left_shoulder_angle
+
+计算方式：
+
+- left_elbow - left_shoulder - left_hip
+- 即以 left_shoulder 为顶点，计算左肘、左肩、左髋形成的夹角
+
+意义：
+
+- 反映左上臂相对躯干的位置
+- 可用于分析发球上举、正反手挥拍空间、截击上肢稳定性
+
+2. 右肩角
+
+字段名：
+
+- right_shoulder_angle
+
+计算方式：
+
+- right_elbow - right_shoulder - right_hip
+- 即以 right_shoulder 为顶点，计算右肘、右肩、右髋形成的夹角
+
+意义：
+
+- 反映右上臂相对躯干的位置
+
+3. 左肘角
+
+字段名：
+
+- left_elbow_angle
+
+计算方式：
+
+- left_shoulder - left_elbow - left_wrist
+- 即以 left_elbow 为顶点
+
+意义：
+
+- 反映左臂屈伸
+- 截击中可用于判断肘部是否稳定
+- 发球和正反手中可用于描述挥拍臂伸展
+
+4. 右肘角
+
+字段名：
+
+- right_elbow_angle
+
+计算方式：
+
+- right_shoulder - right_elbow - right_wrist
+- 即以 right_elbow 为顶点
+
+意义：
+
+- 反映右臂屈伸
+
+5. 左髋角
+
+字段名：
+
+- left_hip_angle
+
+计算方式：
+
+- left_shoulder - left_hip - left_knee
+- 即以 left_hip 为顶点
+
+意义：
+
+- 反映左侧髋部屈伸和身体压低/蹬伸的 2D 代理特征
+
+6. 右髋角
+
+字段名：
+
+- right_hip_angle
+
+计算方式：
+
+- right_shoulder - right_hip - right_knee
+- 即以 right_hip 为顶点
+
+意义：
+
+- 反映右侧髋部屈伸
+
+7. 左膝角
+
+字段名：
+
+- left_knee_angle
+
+计算方式：
+
+- left_hip - left_knee - left_ankle
+- 即以 left_knee 为顶点
+
+意义：
+
+- 反映左腿屈伸
+- 可用于分析准备、蹬伸、垫步和重心变化
+
+8. 右膝角
+
+字段名：
+
+- right_knee_angle
+
+计算方式：
+
+- right_hip - right_knee - right_ankle
+- 即以 right_knee 为顶点
+
+意义：
+
+- 反映右腿屈伸
+
+9. 肩髋分离角
+
+字段名：
+
+- shoulder_hip_angle
+
+计算方式：
+
+- 肩线向量：right_shoulder - left_shoulder
+- 髋线向量：right_hip - left_hip
+- 计算两条线在图像平面内的夹角
+
+意义：
+
+- 反映肩线与髋线相对旋转/分离程度
+- 是正手、反手和发球中很重要的躯干旋转 2D 代理指标
+- 截击中通常变化较小，可用于区别截击和完整底线挥拍
+
+注意：
+
+- 这 9 个角度是研究二人体侧最核心的角度维度。
+- 原有 left_elbow_angle、right_elbow_angle、left_knee_angle、right_knee_angle、shoulder_hip_angle 字段名必须保留。
+- 新增 left_shoulder_angle、right_shoulder_angle、left_hip_angle、right_hip_angle。
+
+八、人体侧建议新增姿态位置与中心特征
+
+请统一导出以下位置特征：
+
+1. 肩中心
+
+- shoulder_center_x
+- shoulder_center_y
+
+计算：
+
+- 左右肩中点
+
+2. 髋中心
+
+- hip_center_x
+- hip_center_y
+
+计算：
+
+- 左右髋中点
+
+3. 兼容旧字段
+
+如果旧代码使用：
+
+- body_center_x
+- body_center_y
+
+请保留它们。
+
+建议：
+
+- body_center_x = shoulder_center_x，兼容正反手引拍侧向判断
+- body_center_y = hip_center_y，兼容原有重心高度代理
+
+如果原代码已有定义，请保持原语义，不要破坏旧逻辑。
+
+4. 肩线倾斜
+
+- shoulder_tilt_y
+- shoulder_line_angle
+
+计算：
+
+- shoulder_tilt_y = right_shoulder_y - left_shoulder_y
+- shoulder_line_angle = atan2(right_shoulder_y - left_shoulder_y, right_shoulder_x - left_shoulder_x)
+
+用途：
+
+- 发球上肢姿态
+- 身体侧倾
+- 图像平面姿态分析
+
+5. 髋线倾斜
+
+- hip_tilt_y
+- hip_line_angle
+
+计算：
+
+- hip_tilt_y = right_hip_y - left_hip_y
+- hip_line_angle = atan2(right_hip_y - left_hip_y, right_hip_x - left_hip_x)
+
+6. 躯干倾角
+
+- trunk_angle
+
+建议计算：
+
+- 从 hip_center 指向 shoulder_center 的向量角度
+- atan2(shoulder_center_y - hip_center_y, shoulder_center_x - hip_center_x)
+
+用途：
+
+- 发球身体伸展
+- 正反手身体前倾/侧倾
+- 截击姿态稳定
+
+九、人体-球拍相对特征建议
+
+这些可以先不写入身体 CSV，也可以在 segmentation.py 融合球拍 CSV 和身体 CSV 后计算。为了后续动作切分与运动学分析，建议至少在融合后能计算以下特征：
+
+1. 持拍手腕坐标
+
+根据 handedness：
+
+- right: racket_wrist_x = right_wrist_x, racket_wrist_y = right_wrist_y
+- left: racket_wrist_x = left_wrist_x, racket_wrist_y = left_wrist_y
+
+2. 拍头-持拍手腕距离
+
+- racket_head_to_wrist_dist
+
+计算：
+
+- distance between t_x_clean/t_y_clean and racket_wrist_x/racket_wrist_y
+
+用途：
+
+- 挥拍半径
+- 截击结构稳定性
+- 正反手展开程度
+
+3. 拍头相对持拍手腕高度
+
+- racket_head_wrist_y_diff
+
+计算：
+
+- t_y_clean - racket_wrist_y
+
+注意：
+
+- 图像坐标 y 通常向下为正。
+- 如果该值过大，说明拍头明显低于手腕。
+
+用途：
+
+- 截击中判断是否掉拍头
+- 发球/正反手中判断球拍姿态
+
+4. 拍头相对身体中心位置
+
+- racket_head_rel_body_x
+- racket_head_rel_body_y
+
+计算：
+
+- t_x_clean - body_center_x
+- t_y_clean - body_center_y
+
+用途：
+
+- 正手/反手引拍方向
+- 击球点相对身体位置
+
+十、按动作说明这些角度后续怎么用
+
+请在代码注释或文档注释中保留这些含义，方便后续切分和论文写作。
+
+1. 正手 forehand
+
+主要使用：
+
+- 持拍侧肩角
+- 持拍侧肘角
+- 持拍侧髋角
+- 持拍侧膝角
+- shoulder_hip_angle
+- racket_head_speed
+- racket_head_rel_body_x
+- racket_head_to_wrist_dist
+
+用途：
+
+- 判断引拍阶段的肩髋分离和球拍侧向位置
+- 判断挥拍阶段持拍臂伸展和拍头加速
+- 判断击球前后下肢屈伸与身体重心参与
+
+2. 反手 backhand
+
+主要使用：
+
+- 持拍侧或双手相关的肩角、肘角
+- 支撑侧膝角
+- shoulder_hip_angle
+- shoulder_turn_x_diff 如果已有则保留
+- racket_head_speed
+- racket_head_rel_body_x
+
+用途：
+
+- 判断侧身引拍
+- 判断横向挥拍幅度
+- 判断肩髋分离和躯干旋转
+- 右手反手通常引拍在身体左侧，左手反手应镜像
+
+3. 发球 serve
+
+主要使用：
+
+- 非持拍手腕 y 坐标
+- 持拍侧肩角
+- 持拍侧肘角
+- 持拍侧髋角
+- 持拍侧膝角
+- shoulder_tilt_y
+- shoulder_line_angle
+- shoulder_hip_angle
+- racket_long_axis_angle
+- racket_head_speed
+
+用途：
+
+- 抛球手腕高度：判断抛球事件
+- 拍头下压/挠背深度：判断挠背阶段
+- 肩角和肘角：判断上挥击球
+- 膝角和髋角：判断屈膝蹬伸
+- 肩线倾斜和肩髋角：判断发球身体姿态
+
+4. 截击 volley
+
+主要使用：
+
+- 持拍侧肩角
+- 持拍侧肘角
+- 支撑侧膝角
+- shoulder_hip_angle
+- racket_head_speed
+- racket_head_wrist_y_diff
+- racket_head_to_wrist_dist
+- racket_long_axis_angle
+
+用途：
+
+- 判断短促速度突刺
+- 判断拍头是否高于或接近手腕
+- 判断肘角是否相对稳定
+- 判断肩髋角变化是否较小
+- 避免把大幅底线抽球误识别为截击
+
+十一、兼容性要求
+
+1. 所有旧字段必须保留。
+2. 如果后续 segmentation.py 还读取 x_clean/y_clean，必须仍然能正常读取。
+3. 如果旧前端只展示原来的 CSV、PNG、MP4，不应受影响。
+4. 新字段只作为增强字段，不改变原有 API 响应结构。
+5. 缺少某个关键点时，对应角度为 NaN，不要让程序崩溃。
+6. 计算角度时，如果任一点缺失或置信度太低，角度应为 NaN。
+7. 平滑时要能处理短视频、空值和窗口长度不足。
+8. 尽量不要引入新的大型依赖。
+
+十二、建议实现顺序
+
+请按这个顺序修改：
+
+1. 找到球拍关键点追踪文件 point_track.py。
+2. 将 YOLO 检测到的 5 个球拍点 t/l/r/b/h 全部写入 CSV。
+3. 保留旧的 x_raw/y_raw/x_interp/y_interp/x_clean/y_clean 字段，并映射到 t 点。
+4. 增加球拍派生特征：拍头速度、拍头加速度、球拍长轴角、宽轴角、球拍中心、有效关键点数量、平均置信度。
+5. 找到人体姿态导出文件 rtmpose_csv.py。
+6. 导出 12 个核心人体关键点坐标和置信度。
+7. 计算并导出 9 个核心角度：左右肩、左右肘、左右髋、左右膝、肩髋分离角。
+8. 导出肩中心、髋中心、body_center_x/y、肩线倾斜、髋线倾斜、躯干倾角。
+9. 确保四类动作 CSV 字段尽量统一，发球/截击不应缺少 body_center_x。
+10. 简单运行一次四类动作流程，确认旧切分算法还能读取旧字段并正常输出。
+
+十三、最终希望得到的结果
+
+修改后，研究二的数据采集层应支持：
+
+球拍侧：
+
+- 5 个球拍关键点坐标
+- 拍头速度和加速度
+- 球拍长轴角
+- 球拍宽轴角
+- 球拍中心
+- 球拍关键点检测质量
+
+人体侧：
+
+- 核心人体关键点坐标
+- 左右肩角
+- 左右肘角
+- 左右髋角
+- 左右膝角
+- 肩髋分离角
+- 肩中心和髋中心
+- 肩线倾斜、髋线倾斜、躯干倾角
+
+这些字段用于后续进一步实现：
+
+- 四类动作识别
+- 候选事件检测
+- 自动切分
+- 2D 运动学分析
+- 前端图表展示
+
+本轮只需要先完成采集维度扩展和字段兼容，不要急着重写全部切分逻辑。

@@ -1,0 +1,14 @@
+fastapi
+uvicorn[standard]
+python-multipart
+ultralytics
+opencv-python
+numpy
+pandas
+scipy
+matplotlib
+moviepy
+torch
+mmcv
+mmpose
+mmengine

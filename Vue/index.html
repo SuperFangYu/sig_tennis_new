@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Tennis · 网球动作分析</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Noto+Sans+SC:wght@600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/assets/app.css" />
+    <!-- 本地 Vue，避免 CDN 被拦截导致整页无法挂载 -->
+    <script src="/assets/vue.global.prod.js"></script>
+  </head>
+  <body>
+    <div id="app" class="page page--home">
+      <header class="home-hero">
+        <h1 class="home-title">
+          <span class="home-title-sig">Tennis</span>
+          <span class="home-title-rest">网球动作分析</span>
+        </h1>
+      </header>
+      <section class="home-actions" aria-label="动作入口">
+        <div class="home-actions-inner">
+          <div class="home-grid">
+            <button
+              type="button"
+              class="home-card home-card--active"
+              @click="goForehand"
+            >
+              <span class="home-card-label">正手击球</span>
+              <span class="home-card-hint">点击进入分析</span>
+            </button>
+            <button
+              type="button"
+              class="home-card home-card--active"
+              @click="goBackhand"
+            >
+              <span class="home-card-label">反手击球</span>
+              <span class="home-card-hint">点击进入分析</span>
+            </button>
+            <button type="button" class="home-card home-card--active" @click="goServe">
+              <span class="home-card-label">发球</span>
+              <span class="home-card-hint">点击进入页面</span>
+            </button>
+            <button type="button" class="home-card home-card--active" @click="goVolley">
+              <span class="home-card-label">截击</span>
+              <span class="home-card-hint">点击进入页面</span>
+            </button>
+          </div>
+        </div>
+      </section>
+    </div>
+    <script>
+      if (typeof Vue === "undefined") {
+        document.getElementById("app").innerHTML =
+          '<p style="padding:24px;color:#f85149">无法加载 Vue（请确认能打开 <a href="/assets/vue.global.prod.js">/assets/vue.global.prod.js</a>）。</p>';
+        throw new Error("Vue not loaded");
+      }
+      const { createApp } = Vue;
+      createApp({
+        methods: {
+          goForehand() {
+            window.location.href = "/forehand.html";
+          },
+          goBackhand() {
+            window.location.href = "/backhand.html";
+          },
+          goServe() {
+            window.location.href = "/serve.html";
+          },
+          goVolley() {
+            window.location.href = "/volley.html";
+          },
+        },
+      }).mount("#app");
+    </script>
+  </body>
+</html>

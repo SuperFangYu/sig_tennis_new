@@ -1,0 +1,274 @@
+/** 网球动作分析页共享工具（正手/反手/发球/截击） */
+
+function fileUrlForAction(relativePath, action) {
+  if (!relativePath) return "";
+  const q = encodeURIComponent(relativePath);
+  const base = typeof window !== "undefined" && window.location ? window.location.origin : "";
+  return `${base}/api/${action}/file?path=${q}`;
+}
+
+function parseCsvText(text) {
+  const raw = String(text || "").replace(/^\uFEFF/, "");
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (raw[i + 1] === '"') {
+          cell += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        cell += ch;
+      }
+      continue;
+    }
+    if (ch === '"') {
+      inQuotes = true;
+    } else if (ch === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && raw[i + 1] === "\n") i++;
+      row.push(cell);
+      cell = "";
+      if (row.length > 1 || (row.length === 1 && row[0] !== "")) rows.push(row);
+      row = [];
+    } else {
+      cell += ch;
+    }
+  }
+  row.push(cell);
+  if (row.length > 1 || (row.length === 1 && row[0] !== "")) rows.push(row);
+  if (!rows.length) return { headers: [], records: [] };
+  const headers = rows[0].map((h) => String(h).trim());
+  const records = rows.slice(1).map((cells) => {
+    const rec = {};
+    headers.forEach((h, idx) => {
+      rec[h] = cells[idx] != null ? String(cells[idx]).trim() : "";
+    });
+    return rec;
+  });
+  return { headers, records };
+}
+
+function formatKinematicCell(val, decimals) {
+  const d = decimals != null ? decimals : 2;
+  if (val == null) return "-";
+  const s = String(val).trim();
+  if (!s || s.toLowerCase() === "nan" || s.toLowerCase() === "none" || s.toLowerCase() === "null") return "-";
+  const n = Number(s);
+  if (!Number.isNaN(n) && Number.isFinite(n)) return n.toFixed(d);
+  return s || "-";
+}
+
+function segmentNumFromFilename(name) {
+  const patterns = [
+    /_angles_(\d+)\.png/i,
+    /_rotation_(\d+)\.png/i,
+    /_kinematics_(\d+)\.png/i,
+    /_kinetic_chain_(\d+)\.png/i,
+    /_speed_cog_(\d+)\.png/i,
+  ];
+  for (const re of patterns) {
+    const m = String(name).match(re);
+    if (m) return parseInt(m[1], 10);
+  }
+  return 0;
+}
+
+function artifactItemsByKind(artifacts, kind, fileUrlFn) {
+  if (!Array.isArray(artifacts)) return [];
+  const items = artifacts
+    .filter((x) => x && x.kind === kind && x.relative_path)
+    .map((x) => ({
+      relative_path: x.relative_path,
+      filename: x.filename || kind,
+      src: fileUrlFn(x.relative_path),
+    }));
+  items.sort((a, b) => segmentNumFromFilename(a.filename) - segmentNumFromFilename(b.filename));
+  return items;
+}
+
+const KINEMATIC_SUMMARY_COLUMNS = [
+  { key: "segment_id", label: "片段编号", decimals: 0 },
+  { key: "start_time", label: "起始时间(s)" },
+  { key: "contact_time", label: "击球时间(s)" },
+  { key: "end_time", label: "结束时间(s)" },
+  { key: "duration", label: "动作时长(s)" },
+  { key: "racket_head_speed_peak", label: "拍头速度峰值" },
+  { key: "racket_elbow_angle_range", label: "肘角变化幅度" },
+  { key: "racket_knee_angle_range", label: "膝角变化幅度" },
+  { key: "racket_shoulder_angle_range", label: "肩角变化幅度" },
+  { key: "racket_hip_angle_range", label: "髋角变化幅度" },
+  { key: "shoulder_hip_angle_range", label: "肩髋角变化幅度" },
+  { key: "racket_head_to_wrist_dist_peak", label: "拍头-手腕距离峰值" },
+  { key: "racket_head_wrist_y_diff_at_contact", label: "拍头相对手腕高度" },
+  { key: "quality_score", label: "质量评分" },
+];
+
+function createKinematicUiState() {
+  return {
+    kinematicSummaryOpen: true,
+    kinematicSummaryRows: [],
+    kinematicSummaryError: "",
+    kinematicSummaryLoading: false,
+    upperLimbBlockOpen: false,
+    upperLimbRowOpen: {},
+    lowerLimbBlockOpen: false,
+    lowerLimbRowOpen: {},
+    trunkBlockOpen: false,
+    trunkRowOpen: {},
+    racketKinBlockOpen: false,
+    racketKinRowOpen: {},
+  };
+}
+
+function createKinematicComputed(apiAction) {
+  return {
+    kinematicSummaryColumns() {
+      if (!this.kinematicSummaryRows.length) return KINEMATIC_SUMMARY_COLUMNS;
+      const keys = new Set(Object.keys(this.kinematicSummaryRows[0] || {}));
+      return KINEMATIC_SUMMARY_COLUMNS.filter((col) => keys.has(col.key));
+    },
+    kinematicSummaryCsvItem() {
+      const r = this.result;
+      if (!r || !Array.isArray(r.artifacts)) return null;
+      return r.artifacts.find((x) => x && x.kind === "kinematic_summary_csv" && x.relative_path) || null;
+    },
+    kinematicPhaseCsvItem() {
+      const r = this.result;
+      if (!r || !Array.isArray(r.artifacts)) return null;
+      return r.artifacts.find((x) => x && x.kind === "kinematic_phase_summary_csv" && x.relative_path) || null;
+    },
+    upperLimbChartItems() {
+      return artifactItemsByKind(this.result && this.result.artifacts, "upper_limb_angle_chart", (p) =>
+        this.fileUrl(p)
+      );
+    },
+    lowerLimbChartItems() {
+      return artifactItemsByKind(this.result && this.result.artifacts, "lower_limb_angle_chart", (p) =>
+        this.fileUrl(p)
+      );
+    },
+    trunkRotationChartItems() {
+      return artifactItemsByKind(this.result && this.result.artifacts, "trunk_rotation_chart", (p) =>
+        this.fileUrl(p)
+      );
+    },
+    racketKinematicChartItems() {
+      return artifactItemsByKind(this.result && this.result.artifacts, "racket_kinematic_chart", (p) =>
+        this.fileUrl(p)
+      );
+    },
+  };
+}
+
+function createKinematicMethods() {
+  return {
+    formatCell(val, decimals) {
+      return formatKinematicCell(val, decimals);
+    },
+    resetKinematicUi() {
+      Object.assign(this, createKinematicUiState());
+    },
+    toggleChartRow(mapKey, i) {
+      const map = this[mapKey] || {};
+      this[mapKey] = { ...map, [i]: !map[i] };
+    },
+    async loadKinematicSummary() {
+      this.kinematicSummaryRows = [];
+      this.kinematicSummaryError = "";
+      const item = this.kinematicSummaryCsvItem;
+      if (!item) {
+        this.kinematicSummaryError = "暂无运动学摘要";
+        return;
+      }
+      this.kinematicSummaryLoading = true;
+      try {
+        const res = await fetch(this.fileUrl(item.relative_path));
+        if (!res.ok) throw new Error("读取失败");
+        const text = await res.text();
+        const parsed = parseCsvText(text);
+        this.kinematicSummaryRows = parsed.records || [];
+        if (!this.kinematicSummaryRows.length) this.kinematicSummaryError = "暂无运动学摘要";
+      } catch (e) {
+        this.kinematicSummaryError = "暂无运动学摘要";
+        console.warn("[kinematic summary]", e);
+      } finally {
+        this.kinematicSummaryLoading = false;
+      }
+    },
+  };
+}
+
+function afterAnalyzeLoadKinematic(vm) {
+  if (vm && typeof vm.loadKinematicSummary === "function") {
+    vm.loadKinematicSummary();
+  }
+}
+
+const KINEMATIC_CHART_PANELS = [
+  {
+    itemsKey: "upperLimbChartItems",
+    blockKey: "upperLimbBlockOpen",
+    rowKey: "upperLimbRowOpen",
+    label: "上肢角度图（2D 图像平面）",
+  },
+  {
+    itemsKey: "lowerLimbChartItems",
+    blockKey: "lowerLimbBlockOpen",
+    rowKey: "lowerLimbRowOpen",
+    label: "下肢角度图（2D 图像平面）",
+  },
+  {
+    itemsKey: "trunkRotationChartItems",
+    blockKey: "trunkBlockOpen",
+    rowKey: "trunkRowOpen",
+    label: "躯干旋转图（2D 图像平面）",
+  },
+  {
+    itemsKey: "racketKinematicChartItems",
+    blockKey: "racketKinBlockOpen",
+    rowKey: "racketKinRowOpen",
+    label: "球拍运动学图",
+  },
+];
+
+function createKinematicChartPanelsComputed() {
+  return {
+    kinematicChartPanels() {
+      return KINEMATIC_CHART_PANELS.map((p) => ({
+        ...p,
+        items: this[p.itemsKey] || [],
+        blockOpen: !!this[p.blockKey],
+      })).filter((p) => p.items.length > 0);
+    },
+  };
+}
+
+function createKinematicChartPanelMethods() {
+  return {
+    toggleKinematicPanelBlock(blockKey) {
+      this[blockKey] = !this[blockKey];
+    },
+    toggleKinematicPanelRow(rowKey, i) {
+      const map = this[rowKey] || {};
+      this[rowKey] = { ...map, [i]: !map[i] };
+    },
+    isPanelRowOpen(rowKey, i) {
+      const map = this[rowKey];
+      return !!(map && map[i]);
+    },
+  };
+}
+
+/** @deprecated 保留兼容；新页面请用 fileUrlForAction */
+function fileUrl(relativePath) {
+  return fileUrlForAction(relativePath, "forehand");
+}

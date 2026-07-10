@@ -1,0 +1,18 @@
+# 忽略巨大的模型权重文件（千万别传！）
+weights/*.pt
+weights/*.pth
+
+# 忽略测试数据和输出的中间结果
+data/inputs/
+data/outputs/
+
+# 如果 Vue 文件夹里有前端依赖，也忽略掉（前端必备）
+Vue/node_modules/
+
+# Python 缓存和 IDE（比如 PyCharm）的配置文件
+__pycache__/
+.idea/
+.vscode/
+
+# 忽略个人的环境变量或敏感配置
+.env

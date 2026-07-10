@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>正手击球</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+    <script src="/assets/vue.global.prod.js"></script>
+  </head>
+  <body>
+    <div id="app" class="page page--stroke-analysis">
+      <header class="analysis-top">
+        <h1 class="analysis-top-title">正手击球</h1>
+        <a class="analysis-top-back" href="/index.html">返回首页</a>
+      </header>
+
+      <div class="analysis-columns">
+        <section class="analysis-panel">
+          <div class="analysis-upload-toolbar">
+            <h2 class="analysis-upload-title">上传视频</h2>
+            <div class="analysis-file-slot">
+              <input
+                type="file"
+                class="analysis-file-input"
+                accept="video/*"
+                @change="onFile"
+                :disabled="busy"
+                id="analysis-file-forehand"
+              />
+              <label for="analysis-file-forehand" class="analysis-file-label">选择文件</label>
+            </div>
+            <div class="analysis-handedness-tools" role="group" aria-label="持拍手">
+              <span class="analysis-handedness-label">持拍手</span>
+              <label class="analysis-handedness-option">
+                <input type="radio" value="right" v-model="handedness" :disabled="busy" />
+                右手
+              </label>
+              <label class="analysis-handedness-option">
+                <input type="radio" value="left" v-model="handedness" :disabled="busy" />
+                左手
+              </label>
+            </div>
+            <span class="analysis-toolbar-spacer" aria-hidden="true"></span>
+            <button
+              class="btn btn-analysis-analyze"
+              type="button"
+              :disabled="!selectedFile || busy"
+              @click="analyze"
+            >
+              {{ busy ? "分析中…" : "开始分析" }}
+            </button>
+          </div>
+
+          <div class="analysis-progress-block">
+            <div
+              class="analysis-progress-track"
+              role="progressbar"
+              :aria-valuenow="progressPctRounded"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <div class="analysis-progress-fill" :style="{ width: progressPercent + '%' }"></div>
+            </div>
+            <div class="analysis-progress-meta">
+              <span class="analysis-progress-pct">{{ progressPctRounded }}%</span>
+              <span class="analysis-progress-hint">{{ progressHint }}</span>
+            </div>
+          </div>
+
+          <p class="status analysis-status">{{ statusText }}</p>
+        </section>
+
+        <section class="analysis-panel analysis-panel--clips">
+          <h2 class="analysis-clips-title">切分后的正手片段</h2>
+          <template v-if="result">
+            <p v-if="!clipItems.length" class="media-hint">本次未检出符合条件的片段，或产物列表为空。</p>
+            <div v-else class="clip-grid">
+              <div v-for="(item, i) in clipItems" :key="item.relative_path || i" class="clip-cell">
+                <p class="clip-label">片段 {{ i + 1 }}</p>
+                <video :src="item.src" controls playsinline preload="metadata"></video>
+                <a class="clip-dl" :href="item.src" :download="item.filename">下载</a>
+              </div>
+            </div>
+          </template>
+          <p v-else class="analysis-clips-placeholder">上传视频并点击「开始分析」，完成后此处展示切分视频。</p>
+        </section>
+      </div>
+
+      <section v-if="result" class="analysis-panel analysis-panel--kinematic-summary">
+        <div class="kinetic-header-row">
+          <span class="kinetic-header-label">2D 运动学摘要</span>
+          <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+          <button type="button" class="btn btn-kinetic-mini" @click="kinematicSummaryOpen = !kinematicSummaryOpen">
+            {{ kinematicSummaryOpen ? "收起" : "展开" }}
+          </button>
+        </div>
+        <div v-if="kinematicSummaryOpen">
+          <p v-if="kinematicSummaryLoading" class="kinematic-summary-hint">正在加载运动学摘要…</p>
+          <p v-else-if="kinematicSummaryError" class="kinematic-summary-hint">{{ kinematicSummaryError }}</p>
+          <div v-else-if="kinematicSummaryRows.length" class="kinematic-summary-table-wrap">
+            <table class="kinematic-summary-table">
+              <thead>
+                <tr>
+                  <th v-for="col in kinematicSummaryColumns" :key="col.key">{{ col.label }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, ri) in kinematicSummaryRows" :key="ri">
+                  <td v-for="col in kinematicSummaryColumns" :key="col.key">
+                    {{ formatCell(row[col.key], col.decimals) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-if="result && kineticChartItems.length"
+        class="analysis-panel analysis-panel--kinetic"
+      >
+        <div class="kinetic-header-row">
+          <span class="kinetic-header-label">动力链图</span>
+          <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+          <button
+            v-if="!kineticBlockOpen"
+            type="button"
+            class="btn btn-kinetic-mini"
+            @click="kineticBlockOpen = true"
+          >
+            展开
+          </button>
+          <button
+            v-else
+            type="button"
+            class="btn btn-kinetic-mini"
+            @click="kineticBlockOpen = false"
+          >
+            收起
+          </button>
+        </div>
+        <div v-if="kineticBlockOpen" class="kinetic-rows">
+          <div
+            v-for="(item, i) in kineticChartItems"
+            :key="item.relative_path || i"
+            class="kinetic-item"
+          >
+            <div class="kinetic-row-bar">
+              <span class="kinetic-fragment-label">片段 {{ i + 1 }}</span>
+              <a class="clip-dl kinetic-dl kinetic-dl-inline" :href="item.src" :download="item.filename">下载</a>
+              <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+              <button type="button" class="btn btn-kinetic-mini" @click="toggleKineticRow(i)">
+                {{ kineticRowOpen[i] ? "收起大图" : "查看大图" }}
+              </button>
+            </div>
+            <div v-if="kineticRowOpen[i]" class="kinetic-expanded">
+              <img class="kinetic-img" :src="item.src" :alt="item.filename" loading="lazy" />
+              <span class="kinetic-filename">{{ item.filename }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-if="result && speedCogChartItems.length"
+        class="analysis-panel analysis-panel--kinetic"
+      >
+        <div class="kinetic-header-row">
+          <span class="kinetic-header-label">拍头速度与身体重心</span>
+          <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+          <button
+            v-if="!speedCogBlockOpen"
+            type="button"
+            class="btn btn-kinetic-mini"
+            @click="speedCogBlockOpen = true"
+          >
+            展开
+          </button>
+          <button
+            v-else
+            type="button"
+            class="btn btn-kinetic-mini"
+            @click="speedCogBlockOpen = false"
+          >
+            收起
+          </button>
+        </div>
+        <div v-if="speedCogBlockOpen" class="kinetic-rows">
+          <div
+            v-for="(item, i) in speedCogChartItems"
+            :key="item.relative_path || i"
+            class="kinetic-item"
+          >
+            <div class="kinetic-row-bar">
+              <span class="kinetic-fragment-label">片段 {{ i + 1 }}</span>
+              <a class="clip-dl kinetic-dl kinetic-dl-inline" :href="item.src" :download="item.filename">下载</a>
+              <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+              <button type="button" class="btn btn-kinetic-mini" @click="toggleSpeedCogRow(i)">
+                {{ speedCogRowOpen[i] ? "收起大图" : "查看大图" }}
+              </button>
+            </div>
+            <div v-if="speedCogRowOpen[i]" class="kinetic-expanded">
+              <img class="kinetic-img" :src="item.src" :alt="item.filename" loading="lazy" />
+              <span class="kinetic-filename">{{ item.filename }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-for="panel in kinematicChartPanels"
+        :key="panel.itemsKey"
+        class="analysis-panel analysis-panel--kinetic"
+      >
+        <div class="kinetic-header-row">
+          <span class="kinetic-header-label">{{ panel.label }}</span>
+          <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+          <button type="button" class="btn btn-kinetic-mini" @click="toggleKinematicPanelBlock(panel.blockKey)">
+            {{ panel.blockOpen ? "收起" : "展开" }}
+          </button>
+        </div>
+        <div v-if="panel.blockOpen" class="kinetic-rows">
+          <div v-for="(item, i) in panel.items" :key="item.relative_path || i" class="kinetic-item">
+            <div class="kinetic-row-bar">
+              <span class="kinetic-fragment-label">片段 {{ i + 1 }}</span>
+              <a class="clip-dl kinetic-dl kinetic-dl-inline" :href="item.src" :download="item.filename">下载</a>
+              <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+              <button type="button" class="btn btn-kinetic-mini" @click="toggleKinematicPanelRow(panel.rowKey, i)">
+                {{ isPanelRowOpen(panel.rowKey, i) ? "收起大图" : "查看大图" }}
+              </button>
+            </div>
+            <div v-if="isPanelRowOpen(panel.rowKey, i)" class="kinetic-expanded">
+              <img class="kinetic-img" :src="item.src" :alt="item.filename" loading="lazy" />
+              <span class="kinetic-filename">{{ item.filename }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-if="result && (kinematicSummaryCsvItem || kinematicPhaseCsvItem)"
+        class="analysis-panel analysis-panel--kinematic-download"
+      >
+        <h2 class="kinematic-summary-title">运动学数据下载</h2>
+        <div class="kinematic-download-row">
+          <a
+            v-if="kinematicSummaryCsvItem"
+            class="clip-dl"
+            :href="fileUrl(kinematicSummaryCsvItem.relative_path)"
+            :download="kinematicSummaryCsvItem.filename"
+          >下载运动学摘要 CSV</a>
+          <a
+            v-if="kinematicPhaseCsvItem"
+            class="clip-dl"
+            :href="fileUrl(kinematicPhaseCsvItem.relative_path)"
+            :download="kinematicPhaseCsvItem.filename"
+          >下载阶段明细 CSV</a>
+        </div>
+      </section>
+    </div>
+    <script src="/assets/app.js"></script>
+    <script>
+      if (typeof Vue === "undefined") {
+        document.getElementById("app").innerHTML =
+          '<p style="padding:24px;color:#f85149">无法加载 Vue（请打开 <a href="/assets/vue.global.prod.js">/assets/vue.global.prod.js</a>）。</p>';
+        throw new Error("Vue not loaded");
+      }
+      const { createApp } = Vue;
+      const app = createApp({
+        data() {
+          return {
+            selectedFile: null,
+            busy: false,
+            statusText: "等待上传",
+            result: null,
+            progressPercent: 0,
+            progressTimer: null,
+            progressHint: "就绪",
+            handedness: "right",
+            kineticBlockOpen: false,
+            kineticRowOpen: {},
+            speedCogBlockOpen: false,
+            speedCogRowOpen: {},
+            ...createKinematicUiState(),
+          };
+        },
+        computed: {
+          progressPctRounded() {
+            return Math.round(this.progressPercent);
+          },
+          ...createKinematicComputed("forehand"),
+          ...createKinematicChartPanelsComputed(),
+          clipItems() {
+            const r = this.result;
+            if (!r) return [];
+            const arts = r.artifacts;
+            if (!Array.isArray(arts)) return [];
+            return arts
+              .filter((x) => x && x.kind === "clip" && x.relative_path)
+              .map((x) => ({
+                relative_path: x.relative_path,
+                filename: x.filename || "clip.mp4",
+                src: this.fileUrl(x.relative_path),
+              }));
+          },
+          kineticChartItems() {
+            const r = this.result;
+            if (!r || !Array.isArray(r.artifacts)) return [];
+            const items = r.artifacts
+              .filter((x) => x && x.kind === "kinetic_chart" && x.relative_path)
+              .map((x) => ({
+                relative_path: x.relative_path,
+                filename: x.filename || "kinetic.png",
+                src: this.fileUrl(x.relative_path),
+              }));
+            const parseSeg = (name) => {
+              const m = String(name).match(/_kinetic_chain_(\d+)\.png/i);
+              return m ? parseInt(m[1], 10) : 0;
+            };
+            items.sort((a, b) => parseSeg(a.filename) - parseSeg(b.filename));
+            return items;
+          },
+          speedCogChartItems() {
+            const r = this.result;
+            if (!r || !Array.isArray(r.artifacts)) return [];
+            const items = r.artifacts
+              .filter((x) => x && x.kind === "speed_cog_chart" && x.relative_path)
+              .map((x) => ({
+                relative_path: x.relative_path,
+                filename: x.filename || "speed_cog.png",
+                src: this.fileUrl(x.relative_path),
+              }));
+            const parseSeg = (name) => {
+              const m = String(name).match(/_speed_cog_(\d+)\.png/i);
+              return m ? parseInt(m[1], 10) : 0;
+            };
+            items.sort((a, b) => parseSeg(a.filename) - parseSeg(b.filename));
+            return items;
+          },
+        },
+        methods: {
+          ...createKinematicMethods(),
+          ...createKinematicChartPanelMethods(),
+          fileUrl(relativePath) {
+            if (!relativePath) return "";
+            const q = encodeURIComponent(relativePath);
+            const base = typeof window !== "undefined" && window.location ? window.location.origin : "";
+            return `${base}/api/forehand/file?path=${q}`;
+          },
+          clearProgressTimer() {
+            if (this.progressTimer) {
+              clearInterval(this.progressTimer);
+              this.progressTimer = null;
+            }
+          },
+          hintForProgress(p) {
+            if (p < 18) return "正在上传…";
+            if (p < 45) return "球拍关键点追踪…";
+            if (p < 72) return "身体姿态与特征…";
+            if (p < 92) return "正手区间切分与导出…";
+            return "即将完成…";
+          },
+          startProgressSimulation() {
+            this.clearProgressTimer();
+            this.progressPercent = 4;
+            this.progressHint = this.hintForProgress(this.progressPercent);
+            this.progressTimer = setInterval(() => {
+              if (this.progressPercent >= 90) return;
+              const delta = 1.2 + Math.random() * 3.5;
+              this.progressPercent = Math.min(90, this.progressPercent + delta);
+              this.progressHint = this.hintForProgress(this.progressPercent);
+            }, 380);
+          },
+          toggleKineticRow(i) {
+            const cur = !!this.kineticRowOpen[i];
+            this.kineticRowOpen = { ...this.kineticRowOpen, [i]: !cur };
+          },
+          toggleSpeedCogRow(i) {
+            const cur = !!this.speedCogRowOpen[i];
+            this.speedCogRowOpen = { ...this.speedCogRowOpen, [i]: !cur };
+          },
+          onFile(e) {
+            const f = e.target.files && e.target.files[0];
+            this.selectedFile = f || null;
+            this.result = null;
+            this.kineticBlockOpen = false;
+            this.kineticRowOpen = {};
+            this.speedCogBlockOpen = false;
+            this.speedCogRowOpen = {};
+            this.resetKinematicUi();
+            this.clearProgressTimer();
+            this.progressPercent = 0;
+            this.progressHint = "就绪";
+            this.statusText = f ? "已选择: " + f.name : "等待上传";
+          },
+          async analyze() {
+            if (!this.selectedFile) return;
+            this.busy = true;
+            this.statusText = "上传并分析中，请稍候…";
+            this.result = null;
+            this.kineticBlockOpen = false;
+            this.kineticRowOpen = {};
+            this.speedCogBlockOpen = false;
+            this.speedCogRowOpen = {};
+            this.resetKinematicUi();
+            this.startProgressSimulation();
+            const fd = new FormData();
+            fd.append("file", this.selectedFile);
+            fd.append("handedness", this.handedness || "right");
+            try {
+              const res = await fetch("/api/forehand/analyze", { method: "POST", body: fd });
+              if (!res.ok) {
+                const err = await res.json().catch(() => ({}));
+                throw new Error(err.detail || res.statusText);
+              }
+              this.result = await res.json();
+              const n = Array.isArray(this.result.artifacts)
+                ? this.result.artifacts.filter((x) => x && x.kind === "clip").length
+                : 0;
+              this.statusText =
+                "完成 run_id: " +
+                (this.result.run_id != null ? this.result.run_id : "(未知)") +
+                (n ? "，共 " + n + " 段视频" : "");
+              this.clearProgressTimer();
+              this.progressPercent = 100;
+              this.progressHint = "处理完成";
+              await this.loadKinematicSummary();
+            } catch (e) {
+              this.statusText = "失败: " + (e.message || String(e));
+              this.clearProgressTimer();
+              this.progressPercent = 0;
+              this.progressHint = "已中断";
+            } finally {
+              this.busy = false;
+            }
+          },
+        },
+        beforeUnmount() {
+          this.clearProgressTimer();
+        },
+      });
+      app.config.errorHandler = (err, _inst, info) => {
+        console.error("[Vue]", err, info);
+        const msg = (err && err.message) || String(err);
+        if (!document.getElementById("vue-fatal")) {
+          document.body.insertAdjacentHTML(
+            "beforeend",
+            '<div id="vue-fatal" style="position:fixed;bottom:0;left:0;right:0;z-index:99999;background:#da3633;color:#fff;padding:12px 16px;font-size:14px;">' +
+              String(msg).replace(/</g, "&lt;") +
+              "</div>"
+          );
+        }
+      };
+      app.mount("#app");
+    </script>
+  </body>
+</html>

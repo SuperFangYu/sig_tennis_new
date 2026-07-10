@@ -1,0 +1,564 @@
+请你作为代码修改助手，继续修改“基于普通视频的网球动作分析系统”的算法内核。本轮任务不是新增采集维度，而是在已经扩展了球拍五点、人体核心关键点和 9 个核心角度之后，设计并实现四类网球动作中这些角度和人拍相对特征的使用方式。
+
+本轮目标：
+
+1. 明确正手、反手、发球、截击分别应该使用哪些角度和人拍相对特征。
+2. 将角度特征用于动作识别、候选事件过滤、起止帧定位和运动学分析。
+3. 优化切分准确性，但不要破坏现有前后端接口。
+4. 保持 API 响应结构、前端展示入口、artifacts kind 和原有输出文件命名尽量不变。
+
+一、修改范围
+
+重点修改：
+
+- algorithm/forehand/segmentation.py
+- algorithm/backhand/segmentation.py
+- algorithm/serve/segmentation.py
+- algorithm/volley/segmentation.py
+
+允许小范围修改：
+
+- backend/services/pipeline.py
+
+但 pipeline.py 只允许用于：
+
+- 对齐新版球拍 CSV 和人体 CSV 字段
+- 确保 handedness 正确传入 segmentation.py
+- 必要时生成融合后的内部 DataFrame 或 debug CSV
+- 保证新增字段缺失时 fallback
+
+不要修改：
+
+- Vue 前端页面
+- API 路由结构
+- schemas.py 响应外壳
+- artifacts kind
+- 原有上传流程
+- 原有结果展示结构
+
+二、可用数据维度
+
+球拍侧：
+
+- t_x_clean, t_y_clean：拍头
+- l_x_clean, l_y_clean：拍框左侧
+- r_x_clean, r_y_clean：拍框右侧
+- b_x_clean, b_y_clean：拍框底部
+- h_x_clean, h_y_clean：拍柄
+- x_clean, y_clean：兼容旧字段，等价于拍头 t
+- racket_head_speed
+- racket_head_vx, racket_head_vy
+- racket_head_acc
+- racket_long_axis_angle
+- racket_width_axis_angle
+- racket_center_x, racket_center_y
+- racket_valid_kpt_count
+- racket_mean_conf
+
+人体角度：
+
+- left_shoulder_angle
+- right_shoulder_angle
+- left_elbow_angle
+- right_elbow_angle
+- left_hip_angle
+- right_hip_angle
+- left_knee_angle
+- right_knee_angle
+- shoulder_hip_angle
+
+人体位置和姿态：
+
+- left_wrist_x, left_wrist_y
+- right_wrist_x, right_wrist_y
+- left_shoulder_x, left_shoulder_y
+- right_shoulder_x, right_shoulder_y
+- left_hip_x, left_hip_y
+- right_hip_x, right_hip_y
+- shoulder_center_x, shoulder_center_y
+- hip_center_x, hip_center_y
+- body_center_x, body_center_y
+- shoulder_tilt_y
+- shoulder_line_angle
+- hip_tilt_y
+- hip_line_angle
+- trunk_angle
+
+融合后建议计算的人拍相对特征：
+
+- racket_head_to_wrist_dist
+- racket_head_wrist_y_diff
+- racket_head_rel_body_x
+- racket_head_rel_body_y
+- racket_center_rel_body_x
+- racket_center_rel_body_y
+
+三、总体算法思想
+
+请将每类动作从“单一轨迹峰值切分”升级为：
+
+1. 拍头轨迹/速度检测候选事件
+2. 结合专项角度特征进行评分
+3. 使用动作规则过滤误检
+4. 围绕 contact/hit 进行起止帧动态搜索
+5. 输出切分结果和运动学摘要
+
+重要要求：
+
+- 角度特征不要全部作为硬条件。
+- 角度优先作为评分项和质量评价项。
+- 只有非常明确的动作特征才作为硬过滤条件。
+- 缺少某个新增字段时要 fallback 到旧逻辑。
+- 所有角度都是图像平面 2D 运动学代理指标，不要写成真实 3D 关节角或动力学指标。
+
+四、公共工具函数建议
+
+请在 segmentation.py 中实现或复用以下 helper：
+
+1. pick_side_columns(handedness)
+
+根据持拍手返回：
+
+右手：
+
+- racket_shoulder_angle = right_shoulder_angle
+- racket_elbow_angle = right_elbow_angle
+- racket_hip_angle = right_hip_angle
+- racket_knee_angle = right_knee_angle
+- support_knee_angle = left_knee_angle
+- racket_wrist_x = right_wrist_x
+- racket_wrist_y = right_wrist_y
+
+左手：
+
+- racket_shoulder_angle = left_shoulder_angle
+- racket_elbow_angle = left_elbow_angle
+- racket_hip_angle = left_hip_angle
+- racket_knee_angle = left_knee_angle
+- support_knee_angle = right_knee_angle
+- racket_wrist_x = left_wrist_x
+- racket_wrist_y = left_wrist_y
+
+2. range_in_window(df, column, start_idx, end_idx)
+
+返回窗口内某个角度/位置的变化幅度。
+
+3. delta_between_windows(df, column, win_a, win_b)
+
+比较准备阶段和击球阶段之间的变化。
+
+4. robust_percentile_threshold(series, percentile, min_value)
+
+用于速度、幅度等阈值自适应。
+
+5. add_human_racket_relative_features(df, handedness)
+
+在球拍和人体 CSV 按 frame merge 后计算：
+
+- racket_head_to_wrist_dist
+- racket_head_wrist_y_diff
+- racket_head_rel_body_x
+- racket_head_rel_body_y
+- racket_center_rel_body_x
+- racket_center_rel_body_y
+
+五、正手 forehand：角度和特征使用
+
+正手动作特点：
+
+- 持拍侧引拍
+- 拍头横向位移明显
+- 击球前拍头速度上升
+- 持拍臂有伸展变化
+- 下肢和髋部参与发力
+- 肩髋分离在准备/引拍阶段较明显
+
+正手建议使用特征：
+
+核心切分特征：
+
+- t_x_clean, t_y_clean 或 x_clean, y_clean
+- racket_head_speed
+- racket_head_rel_body_x
+- racket_head_to_wrist_dist
+
+角度评分特征：
+
+- racket_shoulder_angle
+- racket_elbow_angle
+- racket_hip_angle
+- racket_knee_angle
+- shoulder_hip_angle
+
+使用方式：
+
+1. 候选事件检测
+
+- 保留原有 y_clean 峰值候选。
+- 同时在候选峰附近寻找 racket_head_speed 局部峰值。
+- contact_idx 优先取候选窗口内拍头速度最大点，而不是直接取 y 轨迹峰。
+
+2. 引拍过滤
+
+右手正手：
+
+- 准备阶段拍头应位于身体右侧，即 racket_head_rel_body_x 有明显正向偏移。
+
+左手正手：
+
+- 准备阶段拍头应位于身体左侧，即 racket_head_rel_body_x 有明显负向偏移。
+
+不要用绝对 x 阈值写死，应结合 body_center_x 和视频横向范围自适应。
+
+3. 挥拍幅度过滤
+
+- contact 前后 x 方向位移应明显。
+- swing_width = 准备段 x 极值到随挥段 x 极值的差值。
+- 阈值采用固定下限 + 视频自适应范围，例如 max(140px, 全局 x_range 的一定比例)。
+
+4. 角度评分
+
+在 contact 前窗口、contact 附近、contact 后窗口分别计算：
+
+- racket_elbow_angle_range：持拍肘角变化幅度
+- racket_shoulder_angle_range：持拍肩角变化幅度
+- racket_knee_angle_range：持拍侧膝角变化幅度
+- racket_hip_angle_range：持拍侧髋角变化幅度
+- shoulder_hip_angle_range：肩髋分离变化幅度
+
+评分建议：
+
+- 肘角变化明显：加分
+- 肩角变化明显：加分
+- 肩髋角在准备/击球阶段有变化：加分
+- 膝角/髋角有一定屈伸变化：加分
+- 角度缺失不直接剔除，只不给该项分
+
+5. 起止帧定位
+
+- 从 contact_idx 向前搜索准备起点。
+- 起点可由拍头速度低位、拍头 x 方向达到引拍极值、racket_head_to_wrist_dist 开始增大共同判断。
+- 从 contact_idx 向后搜索随挥结束。
+- 终点可由拍头速度回落、轨迹趋稳、手腕-拍头距离不再快速变化判断。
+
+六、反手 backhand：角度和特征使用
+
+反手动作特点：
+
+- 引拍方向与正手相反。
+- 横向挥拍幅度通常较大。
+- 肩髋分离和侧身特征明显。
+- 双反/单反可能导致肘角模式不同，所以肘角不要做过强硬条件。
+
+反手建议使用特征：
+
+核心切分特征：
+
+- racket_head_speed
+- racket_head_rel_body_x
+- swing_width
+- racket_long_axis_angle
+- shoulder_hip_angle
+
+角度评分特征：
+
+- racket_shoulder_angle
+- racket_elbow_angle
+- support_knee_angle
+- racket_hip_angle
+- shoulder_hip_angle
+- shoulder_turn_x_diff 如果存在
+
+使用方式：
+
+1. 候选事件检测
+
+- 仍可使用 y_clean 峰值作为初筛。
+- contact_idx 应在候选窗口内使用 racket_head_speed 峰值确定。
+
+2. 引拍方向必须 handedness-aware
+
+右手反手：
+
+- 引拍应在身体左侧。
+- 准备阶段 racket_head_rel_body_x 应为负或明显偏左。
+
+左手反手：
+
+- 引拍应在身体右侧。
+- 准备阶段 racket_head_rel_body_x 应为正或明显偏右。
+
+请修正旧逻辑中“反手固定左侧引拍”的问题。
+
+3. 横向挥拍幅度
+
+- 反手 swing_width 阈值应略高于正手。
+- 使用固定下限 + 视频自适应阈值，例如 max(200px, 全局 x_range 的一定比例)。
+
+4. 角度评分
+
+评分项：
+
+- shoulder_hip_angle_range：肩髋分离变化，强加分
+- racket_shoulder_angle_range：持拍侧肩角变化，加分
+- racket_elbow_angle_range：适度加分，但不要作为硬条件
+- support_knee_angle_range：支撑腿参与，加分
+- racket_hip_angle_range：髋部参与，加分
+- shoulder_turn_x_diff_range：如果存在，用于侧身转体评分
+
+5. 起止帧定位
+
+- 反手准备阶段可比正手更长。
+- 从 contact_idx 向前搜索更长准备窗口。
+- 起点以引拍侧 x 极值、速度低位和肩髋角变化开始为参考。
+- 终点以拍头速度回落和轨迹稳定为参考。
+
+七、发球 serve：角度和特征使用
+
+发球动作特点：
+
+- 抛球手腕上升。
+- 拍头下压/挠背。
+- 上挥击球时拍头速度升高。
+- 击球点高。
+- 肩线倾斜、肩角、肘角、膝角和髋角变化明显。
+
+发球建议使用特征：
+
+核心事件特征：
+
+- 非持拍手腕 y：toss_wrist_y
+- t_y_clean 或 y_clean
+- racket_head_speed
+- racket_long_axis_angle
+- shoulder_tilt_y
+- shoulder_line_angle
+
+角度评分特征：
+
+- racket_shoulder_angle
+- racket_elbow_angle
+- racket_hip_angle
+- racket_knee_angle
+- shoulder_hip_angle
+- trunk_angle
+
+使用方式：
+
+1. 事件链检测
+
+发球必须尽量形成以下事件链：
+
+- toss_idx：非持拍手腕达到高点
+- racket_drop_idx：toss 后到 hit 前，拍头 y 最大，即拍头下压/挠背最低点
+- hit_idx：拍头 y 最小且 racket_head_speed 较高
+- follow_end_idx：击球后速度回落或轨迹稳定
+
+事件顺序必须满足：
+
+- toss_idx < racket_drop_idx < hit_idx < follow_end_idx
+
+如果无法完全满足，可 fallback 到旧逻辑，但应降低该候选评分。
+
+2. 抛球特征
+
+右手发球：
+
+- toss_wrist_y = left_wrist_y
+
+左手发球：
+
+- toss_wrist_y = right_wrist_y
+
+抛球有效条件：
+
+- toss_wrist_y 明显高于 body_center_y 或 hip_center_y。
+- 图像坐标中 y 越小越高。
+
+3. 挠背/拍头下压
+
+- drop_depth = max(t_y_clean between toss and hit) - t_y_clean at hit
+- drop_depth 应超过自适应阈值。
+- racket_long_axis_angle 在挠背到击球阶段应有明显变化，可作为加分。
+
+4. 角度评分
+
+评分项：
+
+- racket_knee_angle_range：屈膝蹬伸，加分
+- racket_hip_angle_range：髋部屈伸，加分
+- racket_shoulder_angle_range：上臂上举/挥拍，加分
+- racket_elbow_angle_range：持拍臂伸展，加分
+- shoulder_tilt_y_range：肩部倾斜变化，加分
+- shoulder_hip_angle_range：躯干旋转，加分
+- trunk_angle_range：身体伸展或前倾变化，加分
+
+5. 起止帧定位
+
+- 起点不应只固定为 toss_time - 1.8s。
+- 优先从 toss_idx 向前搜索准备起点。
+- 可参考膝角开始下降、髋角变化、拍头/手腕开始运动。
+- 如果搜索失败，再 fallback 到旧的 toss_time - 1.8s。
+- 终点从 hit_idx 后搜索速度回落或随挥结束。
+
+八、截击 volley：角度和特征使用
+
+截击动作特点：
+
+- 动作短促。
+- 拍头速度突刺明显。
+- 球拍轨迹紧凑。
+- 拍头相对手腕高度稳定，不应明显掉拍头。
+- 肘角和肩髋角变化较小。
+- 可能有小幅膝角变化或重心降低。
+
+截击建议使用特征：
+
+核心切分特征：
+
+- racket_head_speed
+- racket_head_acc
+- t_y_clean
+- racket_head_wrist_y_diff
+- racket_head_to_wrist_dist
+- racket_long_axis_angle
+
+角度评分/过滤特征：
+
+- racket_elbow_angle
+- racket_shoulder_angle
+- support_knee_angle
+- shoulder_hip_angle
+- trunk_angle
+
+使用方式：
+
+1. 候选事件检测
+
+- 以 racket_head_speed 峰值为主。
+- 可结合 racket_head_acc 正向突变。
+- contact_idx 取速度峰或速度峰附近轨迹拐点。
+
+2. 轨迹紧凑过滤
+
+在 contact 前后短窗口内：
+
+- y_range 不应太大。
+- x_range 不应太大。
+- racket_head_to_wrist_dist 不应剧烈变化。
+
+3. 拍头-手腕高度过滤
+
+- racket_head_wrist_y_diff = t_y_clean - racket_wrist_y。
+- 图像坐标 y 向下为正。
+- 如果该值过大，说明拍头明显低于手腕，疑似掉拍头或底线抽球，应剔除或降分。
+
+4. 角度过滤/评分
+
+截击和底线抽球的重要区别是动作短、身体旋转小、肘部相对稳定。
+
+评分项：
+
+- racket_elbow_angle_range 较小：加分
+- shoulder_hip_angle_range 较小：加分
+- racket_shoulder_angle_range 不过大：加分
+- support_knee_angle 有小幅变化：加分
+- trunk_angle_range 不过大：加分
+
+注意：
+
+- 对截击来说，“角度变化小”反而是好特征。
+- 不要用正反手那种大幅肩髋变化作为截击加分项。
+
+5. 起止帧定位
+
+- 不要完全固定 contact ±0.8s。
+- 可从 contact 前后搜索速度低谷。
+- 但要限制窗口短，比如 0.6s 到 1.0s。
+- 如果搜索失败，fallback 到旧的 ±0.8s。
+
+九、四类动作角度使用总结
+
+请在代码中尽量让逻辑体现以下差异：
+
+正手：
+
+- 大横向挥拍
+- 持拍侧肩/肘/髋/膝变化
+- 肩髋分离变化
+- 拍头速度峰值
+
+反手：
+
+- 与持拍手相关的镜像引拍方向
+- 更强侧身和肩髋分离
+- 横向挥拍幅度更大
+- 肘角作为软特征，不作强硬条件
+
+发球：
+
+- 抛球手腕高点
+- 拍头下压/挠背
+- 高点击球
+- 膝/髋/肩/肘连续变化
+- 肩线倾斜和躯干姿态
+
+截击：
+
+- 速度突刺
+- 轨迹紧凑
+- 拍头相对手腕高度稳定
+- 肘角变化小
+- 肩髋角变化小
+- 动作窗口短
+
+十、运动学分析摘要输出建议
+
+本轮可以先不改前端，但请在算法内部为每个切分片段准备可输出的运动学摘要字段。可以写入 debug CSV 或内部 dict，但不要破坏旧 artifacts。
+
+每个片段建议统计：
+
+- action_type
+- start_time
+- contact_time / hit_time
+- end_time
+- duration
+- racket_head_speed_peak
+- racket_head_speed_peak_time
+- racket_head_to_wrist_dist_peak
+- racket_head_wrist_y_diff_at_contact
+- racket_long_axis_angle_at_contact
+- racket_shoulder_angle_min/max/range
+- racket_elbow_angle_min/max/range
+- racket_hip_angle_min/max/range
+- racket_knee_angle_min/max/range
+- support_knee_angle_min/max/range
+- shoulder_hip_angle_min/max/range
+- trunk_angle_min/max/range
+
+这些摘要用于后续研究二第二部分“动作片段运动学分析”和前端图表展示。
+
+十一、兼容性和 fallback 要求
+
+1. 如果没有新增角度字段，必须 fallback 到旧字段和旧切分逻辑。
+2. 如果没有球拍五点字段，必须继续使用 x_clean/y_clean。
+3. 如果没有 left_wrist_x/right_wrist_x，只能跳过人拍距离，不能报错。
+4. 如果某个角度全是 NaN，只跳过该评分项。
+5. 原有 intervals 输出保持 [[start_time, end_time], ...]。
+6. 原有 clip、PNG 图表和 CSV 输出尽量保持。
+7. 不要修改前端接口，不要要求前端立即适配新字段。
+
+十二、验收标准
+
+完成后应满足：
+
+1. 四类动作仍能正常跑完旧流程。
+2. 切分结果仍输出 intervals 和视频片段。
+3. 正手/反手不再只靠 y_clean 峰值，而是结合速度和角度评分。
+4. 反手引拍方向已按 handedness 镜像。
+5. 发球使用 toss-drop-hit-follow 的事件链逻辑。
+6. 截击使用“速度突刺 + 轨迹紧凑 + 肘角/肩髋变化小 + 拍头相对手腕高度”过滤。
+7. 新增角度和人拍相对特征缺失时不会导致程序失败。
+8. 代码中保留清晰注释，说明这些是 2D 图像平面运动学特征。
+
+本轮请聚焦：四类动作分别如何使用角度和人拍相对特征，不要重写前端展示，也不要引入大型新依赖。

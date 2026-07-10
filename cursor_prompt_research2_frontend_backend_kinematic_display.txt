@@ -1,0 +1,488 @@
+请你作为代码修改助手，继续完善“基于普通视频的网球动作分析系统”的研究二功能。本轮是第三步：在前两步已经扩展了球拍/人体采集维度，并将角度特征用于四类动作切分之后，把新增的运动学分析结果接入现有后端产物和前端展示。
+
+本轮重点：
+
+1. 不重做整个系统。
+2. 不重新设计首页、导航、上传流程和 API 路由。
+3. 在现有正手、反手、发球、截击页面中，增量展示新增运动学分析结果。
+4. 后端增加运动学摘要 CSV、运动学图表等产物。
+5. 前端在原有结果区增加“运动学摘要”“角度曲线”“指标下载”等模块。
+
+一句话原则：
+
+在现有系统上“长出”运动学分析展示，不要把前端改成一个全新的 dashboard。
+
+一、项目当前结构
+
+系统已有流程大致为：
+
+上传视频
+→ YOLO 球拍关键点追踪
+→ RTMPose 人体姿态估计
+→ segmentation.py 自动切分
+→ 输出 CSV、PNG、MP4
+→ FastAPI 返回 artifacts
+→ Vue 静态页面展示结果
+
+四类动作：
+
+- forehand 正手
+- backhand 反手
+- serve 发球
+- volley 截击
+
+已有前端页面通常包括：
+
+- 首页
+- forehand.html
+- backhand.html
+- serve.html
+- volley.html
+
+已有后端产物 kind 可能包括：
+
+- racket_csv
+- body_csv
+- final_chart
+- racket_chart
+- kinetic_chart
+- speed_cog_chart
+- serve_trace_chart
+- serve_kinetic_chart
+- volley_trace_chart
+- volley_kinetic_chart
+- clip
+
+这些已有字段、kind 和展示逻辑必须保留。
+
+二、修改范围
+
+允许修改：
+
+- algorithm/*/segmentation.py
+- algorithm/*/rtmpose_csv.py 如确实需要字段名兼容
+- algorithm/*/point_track.py 如确实需要字段名兼容
+- backend/services/pipeline.py
+- backend/routers/* 如只用于登记新 artifacts，不改变路由结构
+- backend/schemas.py 如必须让响应兼容新增 summary，但优先避免破坏原结构
+- Vue/forehand.html
+- Vue/backhand.html
+- Vue/serve.html
+- Vue/volley.html
+- 相关 JS/CSS 文件，如果项目中前端逻辑是拆分的
+
+不要修改：
+
+- main.py
+- 首页整体流程，除非只是文字或入口小调整
+- API 路径
+- 上传字段名
+- 原有响应中的 run_id、video_name、message、artifacts、intervals
+- 原有 artifacts kind 的名称
+- 原有视频片段和图表展示方式
+
+三、后端新增产物目标
+
+请在每个动作分析完成后，新增以下运动学分析产物。
+
+1. 每个动作运行的总表：
+
+文件建议命名：
+
+- {video_name}_kinematic_summary.csv
+
+artifact kind 建议：
+
+- kinematic_summary_csv
+
+内容：每一行对应一个切分片段。
+
+建议字段：
+
+- segment_id
+- action_type
+- start_time
+- contact_time 或 hit_time
+- end_time
+- duration
+- start_frame
+- contact_frame 或 hit_frame
+- end_frame
+- racket_head_speed_peak
+- racket_head_speed_peak_time
+- racket_head_acc_peak
+- racket_head_to_wrist_dist_mean
+- racket_head_to_wrist_dist_peak
+- racket_head_wrist_y_diff_at_contact
+- racket_head_rel_body_x_at_contact
+- racket_head_rel_body_y_at_contact
+- racket_long_axis_angle_at_contact
+- racket_width_axis_angle_at_contact
+- racket_valid_kpt_count_mean
+- racket_mean_conf_mean
+- racket_shoulder_angle_min
+- racket_shoulder_angle_max
+- racket_shoulder_angle_range
+- racket_elbow_angle_min
+- racket_elbow_angle_max
+- racket_elbow_angle_range
+- racket_hip_angle_min
+- racket_hip_angle_max
+- racket_hip_angle_range
+- racket_knee_angle_min
+- racket_knee_angle_max
+- racket_knee_angle_range
+- support_knee_angle_min
+- support_knee_angle_max
+- support_knee_angle_range
+- shoulder_hip_angle_min
+- shoulder_hip_angle_max
+- shoulder_hip_angle_range
+- trunk_angle_min
+- trunk_angle_max
+- trunk_angle_range
+- quality_score
+- reject_reason 或 notes
+
+注意：
+
+- 如果某字段不存在，用 NaN 或空值，不要报错。
+- 对正手、反手、发球、截击都尽量输出同一套 summary 字段。
+- 发球可额外加入 toss_time、racket_drop_time、toss_height_diff、drop_depth。
+- 截击可额外加入 y_range_window、x_range_window、elbow_stability_score。
+
+2. 每个动作片段的阶段明细表，可选：
+
+文件建议命名：
+
+- {video_name}_kinematic_phase_summary.csv
+
+artifact kind 建议：
+
+- kinematic_phase_summary_csv
+
+内容：每一行对应一个片段中的一个阶段。
+
+建议字段：
+
+- segment_id
+- action_type
+- phase_name
+- phase_start_time
+- phase_end_time
+- phase_duration
+- racket_head_speed_peak
+- racket_elbow_angle_range
+- racket_knee_angle_range
+- shoulder_hip_angle_range
+
+阶段建议：
+
+正手/反手：
+
+- preparation
+- acceleration
+- contact
+- follow_through
+
+发球：
+
+- preparation
+- toss
+- racket_drop
+- upward_swing_contact
+- follow_through
+
+截击：
+
+- preparation
+- contact
+- recovery
+
+3. 新增图表产物
+
+请在不影响旧图表的基础上，增加以下图表。
+
+通用图表：
+
+- 上肢角度曲线图
+- 下肢角度曲线图
+- 肩髋分离/躯干姿态曲线图
+- 球拍运动学曲线图
+
+建议文件名：
+
+- {video_name}_upper_limb_angles_{segment_id}.png
+- {video_name}_lower_limb_angles_{segment_id}.png
+- {video_name}_trunk_rotation_{segment_id}.png
+- {video_name}_racket_kinematics_{segment_id}.png
+
+artifact kind 建议：
+
+- upper_limb_angle_chart
+- lower_limb_angle_chart
+- trunk_rotation_chart
+- racket_kinematic_chart
+
+图表内容建议：
+
+上肢角度：
+
+- racket_shoulder_angle
+- racket_elbow_angle
+- 如可用，也可显示非持拍侧肘角
+
+下肢角度：
+
+- racket_hip_angle
+- racket_knee_angle
+- support_knee_angle
+
+躯干：
+
+- shoulder_hip_angle
+- trunk_angle
+- shoulder_line_angle
+
+球拍：
+
+- racket_head_speed
+- racket_head_acc
+- racket_long_axis_angle
+- racket_head_to_wrist_dist
+- racket_head_wrist_y_diff
+
+图表要求：
+
+- 标注 start/contact/end 或 start/hit/end。
+- 发球图中尽量标注 toss、racket_drop、hit。
+- 截击图中突出 contact 短时间窗。
+- 图表名称和坐标轴要使用中文或中英混合均可，但要清楚。
+- 不要把 2D 角度写成 3D 真实角度。
+
+四、后端 artifacts 对齐
+
+请在 pipeline 或 artifacts 收集逻辑中加入新增产物。
+
+保留旧 artifacts，不要删除或改名。
+
+新增 kind 建议：
+
+- kinematic_summary_csv
+- kinematic_phase_summary_csv
+- upper_limb_angle_chart
+- lower_limb_angle_chart
+- trunk_rotation_chart
+- racket_kinematic_chart
+
+响应结构仍保持类似：
+
+{
+  "run_id": "...",
+  "video_name": "...",
+  "message": "ok",
+  "artifacts": [
+    {"kind": "racket_csv", "filename": "...", "relative_path": "..."},
+    {"kind": "body_csv", "filename": "...", "relative_path": "..."},
+    {"kind": "clip", "filename": "...", "relative_path": "..."},
+    {"kind": "kinematic_summary_csv", "filename": "...", "relative_path": "..."}
+  ],
+  "intervals": [[1.2, 2.8]]
+}
+
+如果 schemas.py 对 artifact kind 有枚举限制，请扩展枚举；如果没有，不要额外重构。
+
+五、前端展示目标
+
+请在现有四个动作页面中增量增加展示模块。
+
+保留原有：
+
+- 上传区域
+- 持拍手选择
+- 分析按钮
+- 加载状态
+- 切分视频片段展示
+- 原有轨迹图/动力链图展示
+- 下载文件入口
+
+新增：
+
+1. 运动学摘要表
+
+在结果区域新增一个“运动学摘要”模块。
+
+表格建议列：
+
+- 片段编号
+- 起始时间
+- 击球时间
+- 结束时间
+- 动作时长
+- 拍头速度峰值
+- 肘角变化幅度
+- 膝角变化幅度
+- 肩角变化幅度
+- 髋角变化幅度
+- 肩髋角变化幅度
+- 拍头-手腕距离峰值
+- 拍头相对手腕高度
+- 质量评分
+
+显示要求：
+
+- 如果 summary CSV 存在，前端读取并展示。
+- 如果读取失败，显示“暂无运动学摘要”，不要影响其他结果展示。
+- 数值保留 2 位小数。
+- 时间保留 2 位小数秒。
+
+2. 角度曲线图展示
+
+在原有图表区增加：
+
+- 上肢角度图
+- 下肢角度图
+- 躯干旋转图
+- 球拍运动学图
+
+展示方式：
+
+- 可以按照 artifacts kind 自动分组。
+- 每个图表仍然用现有图片展示方式。
+- 不要引入复杂交互图表库，除非项目已有。
+
+3. 下载入口
+
+新增 summary CSV 下载按钮或链接：
+
+- kinematic_summary_csv
+- kinematic_phase_summary_csv 如果有
+
+4. 片段对应关系
+
+如果能通过 filename 或 segment_id 对齐，尽量让：
+
+- clip
+- upper_limb_angle_chart
+- lower_limb_angle_chart
+- trunk_rotation_chart
+- racket_kinematic_chart
+- summary 表中的 segment_id
+
+在前端视觉上归到同一个片段下。
+
+如果现有前端结构不方便精细分组，先按 kind 分区展示即可，不要大重构。
+
+六、四类动作展示差异
+
+前端可以共用一套展示逻辑，但每类动作的标题和重点指标略有不同。
+
+正手 forehand：
+
+- 重点显示：拍头速度峰值、持拍侧肘角变化、持拍侧膝角变化、肩髋角变化、拍头-手腕距离。
+
+反手 backhand：
+
+- 重点显示：拍头速度峰值、肩髋角变化、侧身/肩部变化、横向挥拍幅度、支撑腿膝角变化。
+
+发球 serve：
+
+- 重点显示：抛球时间、挠背时间、击球时间、抛球高度差、挠背深度、拍头速度峰值、肩角/肘角/膝角变化。
+
+截击 volley：
+
+- 重点显示：速度突刺、动作时长、拍头相对手腕高度、肘角稳定性、肩髋角变化小、轨迹紧凑程度。
+
+如果前端暂时只做通用表格，也可以先不做四类动作差异化布局。
+
+七、重要术语
+
+页面或图表中建议使用：
+
+- 运动学分析
+- 图像平面角度
+- 拍头速度
+- 球拍姿态
+- 人拍相对关系
+- 肩髋分离角
+- 持拍侧肘角
+- 持拍侧膝角
+
+不要使用：
+
+- 动力学分析
+- 关节力矩
+- 肌肉力
+- 地面反作用力
+- 真实 3D 关节角
+
+除非该页面明确展示的是研究三 OptiTrack + 测力台 + OpenSim 结果。本系统当前研究二前端展示应叫“2D 运动学分析”，不要叫“动力学分析”。
+
+八、CSV 读取与前端兼容
+
+如果前端读取 summary CSV：
+
+1. 优先使用已有的文件下载接口获取 CSV。
+2. 前端用简单 CSV parser 即可。
+3. 如果项目已有 CSV 解析工具，复用现有工具。
+4. 如果没有，可以实现一个轻量解析函数。
+5. CSV 中空值、NaN、None、空字符串要显示为 “-”。
+6. 不要因为某列缺失导致整个表格不显示。
+
+表格列可以用字段存在性判断：
+
+- 字段存在则显示。
+- 字段不存在则跳过或显示 “-”。
+
+九、后端 summary 生成建议
+
+请在每个 segmentation.py 中或公共 helper 中新增：
+
+- build_kinematic_summary(...)
+- save_kinematic_summary_csv(...)
+- plot_upper_limb_angles(...)
+- plot_lower_limb_angles(...)
+- plot_trunk_rotation(...)
+- plot_racket_kinematics(...)
+
+如果四类动作代码重复较多，可以抽公共函数；但不要为了抽象大规模重构。
+
+summary 统计规则：
+
+1. 对每个切分片段，在 start_frame 到 end_frame 范围内统计。
+2. contact/hit 帧优先使用算法已有的 contact_idx/hit_idx。
+3. 速度峰值取片段内 racket_head_speed 最大值。
+4. 角度 range = max - min，忽略 NaN。
+5. at_contact 类指标取 contact/hit 帧附近最近有效值。
+6. 若字段不存在，填 NaN。
+
+十、保持现有系统稳定
+
+完成后必须满足：
+
+1. 原有上传分析流程不变。
+2. 原有切分视频仍展示。
+3. 原有轨迹图、动力链图仍展示。
+4. 原有 API 响应字段仍存在。
+5. 新增 artifacts 不影响旧 artifacts。
+6. 没有 summary CSV 时，前端仍能正常展示旧结果。
+7. 没有新增角度字段时，后端 summary 生成不崩溃。
+8. 不引入大型前端依赖。
+9. 不把页面重做成新系统。
+
+十一、验收标准
+
+请修改完成后检查：
+
+1. 正手页面可以显示原有结果和运动学摘要。
+2. 反手页面可以显示原有结果和运动学摘要。
+3. 发球页面可以显示原有结果和运动学摘要。
+4. 截击页面可以显示原有结果和运动学摘要。
+5. artifacts 中包含 kinematic_summary_csv。
+6. 如果生成了角度图，artifacts 中包含对应 chart kind。
+7. 前端遇到缺失图表或缺失 CSV 时不报错。
+8. 页面仍然保持原来的使用方式和布局风格。
+
+本轮最终效果：
+
+用户上传视频后，系统除了原有切分视频和图表，还能在现有结果页看到每个动作片段的 2D 运动学摘要、关键角度曲线和球拍运动学图表，为研究二“动作识别、自动切分与运动学分析”提供可视化支撑。
