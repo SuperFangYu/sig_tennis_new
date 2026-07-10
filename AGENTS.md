@@ -8,21 +8,72 @@
 - 先给简短结论，再分点说明依据、改动、检查结果和未验证事项。
 - 不得把没有实际执行的测试描述为“已通过”。
 
-## 分支与提交
+## 统一 Git 工作流程
 
-- `master` 是用户在 5090 电脑验证通过后的稳定分支。
-- Codex 的所有代码修改、文档修改和提交只能位于 `codex` 分支。
-- Codex 不得直接提交、推送或合并到 `master`，也不得删除或强制更新 `master`。
-- 每次开始修改前，应先获取远程最新状态，并以最新 `master` 为基线同步 `codex`。
-- 推荐同步顺序：
-  1. `git fetch origin`
-  2. `git switch master`
-  3. `git pull --ff-only origin master`
-  4. `git switch codex`（不存在时从最新 `master` 创建）
-  5. `git merge --ff-only master`
-- 如果 `codex` 与 `master` 已经分叉，导致无法快进同步，不得擅自 rebase、强制推送或覆盖历史；应停止并向用户说明。
-- 修改完成后，只提交并推送到 `origin/codex`。交付时说明分支、提交 SHA 和提交信息。
-- 禁止未经用户明确许可执行破坏性 Git 操作，例如 `git reset --hard`、强制推送或删除分支。
+- `master` 只保存已经在 5090 完整验证通过的稳定版本。
+- `codex` 是 Mac 和 5090 上所有日常开发、文档修改和提交的唯一工作分支。
+- 不论在哪台电脑，每一轮开发都遵循同一流程：从最新 `master` 同步 `codex`，在 `codex` 修改、验证和推送；只有 5090 验证成功后才将 `codex` 合入 `master`。
+- Codex 不得直接提交、推送或合并到 `master`，除非用户明确授权；不得删除或强制更新任何分支。
+
+### 每次开始开发前（Mac 和 5090 完全相同）
+
+开始前必须先执行 `git status`，确认没有未提交修改。若工作区不干净，不得直接切换、拉取或合并分支，应先提交、暂存或向用户确认。
+
+```bash
+git fetch origin
+
+git switch master
+git pull --ff-only origin master
+
+git switch codex
+git pull --ff-only origin codex
+git merge --ff-only master
+```
+
+该步骤的目的：获取其他电脑已发布的稳定版本，并让 `codex` 从最新 `master` 开始。刚同步完成且尚未开发时，可用下列命令检查两者是否对齐：
+
+```bash
+git rev-list --left-right --count master...codex
+```
+
+理想输出为 `0 0`。
+
+### 开发、提交与推送（Mac 和 5090 完全相同）
+
+所有修改都在 `codex` 进行；只暂存本次任务涉及的文件：
+
+```bash
+# 修改并完成可用的检查
+git status
+git add <具体文件>
+git commit -m "<修改说明>"
+git push origin codex
+```
+
+### 5090 完整验证后的稳定发布
+
+只有在 5090 已完成真实视频、CUDA、YOLO/RTMPose 等完整验证并确认成功后，才由用户或经用户明确授权的操作将 `codex` 合入 `master`：
+
+```bash
+git switch master
+git pull --ff-only origin master
+git merge --no-ff codex -m "merge: verified codex changes"
+git push origin master
+```
+
+发布后，为下一轮开发再次对齐 `codex`：
+
+```bash
+git switch codex
+git merge --ff-only master
+git push origin codex
+```
+
+### 异常处理
+
+- 若 `git merge --ff-only master` 或 `git pull --ff-only origin codex` 报错，说明分支出现分叉或当前基线不完整；不得执行 `rebase`、强制推送、`git reset --hard` 或覆盖历史，应先检查 `git status` 和 `git log --oneline --graph --decorate --all -15`，再请求处理方向。
+- 若已经在旧 `codex` 上产生未提交修改，先不要拉取或合并；应先提交、暂存或确认如何处理。
+- 若已经在旧 `codex` 上提交，新旧分支的代码不会被普通 `merge` 自动删除；但快进同步失败时仍必须先检查历史，不能强行覆盖。
 
 ## 5090 运行环境
 
