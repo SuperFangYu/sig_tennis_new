@@ -119,14 +119,14 @@ def _evaluate_volley_candidate(
     w0 = max(0, contact_idx - win_half)
     w1 = min(len(df) - 1, contact_idx + win_half)
 
-    x_thr, y_thr = _compact_thresholds(x, y)
+    _, y_thr = _compact_thresholds(x, y)
     y_rng = range_in_window(df, "y_clean", w0, w1)
     x_rng = range_in_window(df, "x_clean", w0, w1)
 
     if np.isfinite(y_rng) and y_rng > y_thr:
         return False, 0.0, 0, 0, 0.0, 0.0, f"Y轴浮动过大({y_rng:.0f}px)"
-    if np.isfinite(x_rng) and x_rng > x_thr:
-        return False, 0.0, 0, 0, 0.0, 0.0, f"X轴浮动过大({x_rng:.0f}px)"
+    # 截击既可能是短促挡击，也可能带有明显前送；X 轴位移只保留为摘要指标，
+    # 不再作为硬过滤条件，避免因拍摄视角或动作幅度差异误删真实截击。
 
     wrist_col = side_cols.get("racket_wrist_y", "right_wrist_y")
     if "racket_head_wrist_y_diff" in df.columns:
@@ -177,7 +177,8 @@ def _evaluate_volley_candidate(
     if score < MIN_SCORE_THRESHOLD and has_enhanced:
         return False, score, idx_start, idx_end, start_t, end_t, f"角度评分过低({score:.2f})"
 
-    return True, score, idx_start, idx_end, start_t, end_t, "ok"
+    reason = f"ok (X轴窗口位移仅记录: {x_rng:.0f}px)" if np.isfinite(x_rng) else "ok"
+    return True, score, idx_start, idx_end, start_t, end_t, reason
 
 
 def run_segmentation(
