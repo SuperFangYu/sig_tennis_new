@@ -18,7 +18,7 @@ if str(REPO_ROOT) not in sys.path:
 import numpy as np
 import pandas as pd
 
-from qualisys.config import ANGLE_COLUMNS, DEFAULT_MANIFEST, EVENT_NAMES
+from qualisys.config import ANGLE_COLUMNS, EVENT_GUIDES, EVENT_NAMES
 from qualisys.trials import Trial, load_trials, select_trials
 
 EVENT_COLUMNS = ("repetition", "event", "time")
@@ -31,9 +31,10 @@ def write_event_templates(trial: Trial) -> tuple[Path, Path]:
         trial.intermediate_dir / "video_events.csv",
         trial.intermediate_dir / "qualisys_events.csv",
     )
+    guide = EVENT_GUIDES[trial.action]
     template = pd.DataFrame(
-        [(1, event, "") for event in EVENT_NAMES],
-        columns=EVENT_COLUMNS,
+        [(1, event, "", guide[event]) for event in EVENT_NAMES],
+        columns=(*EVENT_COLUMNS, "definition"),
     )
     for path in paths:
         if not path.exists():
@@ -263,12 +264,6 @@ def compare_trial(trial: Trial) -> dict[str, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="按人工事件对齐并比较 RTMPose 与 Qualisys 八角。")
-    parser.add_argument(
-        "--manifest",
-        type=Path,
-        default=DEFAULT_MANIFEST,
-        help="可选 manifest.csv；不存在时自动扫描 input/video 与 input/qtm",
-    )
     parser.add_argument("--trial", action="append", dest="trial_ids", help="只处理指定 trial_id，可重复")
     parser.add_argument(
         "--prepare-events",
@@ -277,7 +272,7 @@ def main() -> None:
     )
     args = parser.parse_args()
 
-    trials = select_trials(load_trials(args.manifest, validate_files=False), args.trial_ids)
+    trials = select_trials(load_trials(validate_files=False), args.trial_ids)
     for trial in trials:
         if args.prepare_events:
             paths = write_event_templates(trial)

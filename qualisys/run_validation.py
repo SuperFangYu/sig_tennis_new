@@ -1,7 +1,4 @@
-"""总入口：按顺序调用 RTMPose、Qualisys、人工事件准备与比较阶段。
-
-第一次建议先运行 rtmpose/qualisys，再用 --prepare-events 建表并人工填写，最后运行 compare。
-"""
+"""PyCharm 总入口：依次把 RUN_MODE 设为 extract、prepare_events、compare。"""
 
 from __future__ import annotations
 
@@ -14,49 +11,47 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from qualisys.compare_angles import compare_trial, write_event_templates
-from qualisys.config import DEFAULT_MANIFEST
+from qualisys.config import ACTION_LABELS
 from qualisys.run_qualisys import run_qualisys_trial
 from qualisys.run_rtmpose import run_rtmpose_trial
 from qualisys.trials import load_trials, select_trials
 
-STAGES = ("rtmpose", "qualisys", "compare")
+# ===== PyCharm 直接运行时只需要修改这里 =====
+# extract：生成两套八角；prepare_events：生成待填写的时间表；compare：完成对齐与指标。
+RUN_MODE = "extract"
+TRIAL_ID = ""  # 留空处理所有同名配对；例如只处理 fy_zs_1 时填 "fy_zs_1"
+DEVICE = "cuda:0"
+# ========================================
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="运行 RTMPose–Qualisys 验证流水线。")
+    parser = argparse.ArgumentParser(description="三步运行 RTMPose–Qualisys 验证。")
     parser.add_argument(
-        "--manifest",
-        type=Path,
-        default=DEFAULT_MANIFEST,
-        help="可选 manifest.csv；不存在时自动扫描 input/video 与 input/qtm",
+        "--mode",
+        choices=("extract", "prepare_events", "compare"),
+        default=RUN_MODE,
+        help="extract=提取角度，prepare_events=建立时间表，compare=对齐比较",
     )
-    parser.add_argument("--trial", action="append", dest="trial_ids", help="只处理指定 trial_id，可重复")
-    parser.add_argument("--stage", action="append", choices=STAGES, dest="stages", help="指定阶段，可重复")
-    parser.add_argument("--device", default="cuda:0")
-    parser.add_argument(
-        "--prepare-events",
-        action="store_true",
-        help="仅创建事件模板；适合两套八角 CSV 已生成后的第一次操作",
-    )
+    parser.add_argument("--trial", default=TRIAL_ID, help="试次主文件名；留空处理全部配对")
+    parser.add_argument("--device", default=DEVICE)
     args = parser.parse_args()
 
-    trials = select_trials(load_trials(args.manifest, validate_files=False), args.trial_ids)
-    if args.prepare_events:
+    requested = [args.trial] if args.trial else None
+    trials = select_trials(load_trials(validate_files=False), requested)
+    if args.mode == "prepare_events":
         for trial in trials:
             write_event_templates(trial)
             print(f"[{trial.trial_id}] 已准备人工事件模板")
         return
 
-    stages = tuple(args.stages or STAGES)
     for trial in trials:
-        print(f"\n=== {trial.trial_id} ({trial.action}) ===")
-        if "rtmpose" in stages:
+        print(f"\n=== {trial.trial_id}（{ACTION_LABELS[trial.action]}）===")
+        if args.mode == "extract":
             run_rtmpose_trial(trial, device=args.device)
-        if "qualisys" in stages:
             run_qualisys_trial(trial)
-        if "compare" in stages:
+        elif args.mode == "compare":
             compare_trial(trial)
-        print(f"[{trial.trial_id}] 已完成阶段: {', '.join(stages)}")
+        print(f"[{trial.trial_id}] 已完成: {args.mode}")
 
 
 if __name__ == "__main__":

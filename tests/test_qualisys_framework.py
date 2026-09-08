@@ -1,4 +1,3 @@
-import csv
 import tempfile
 import unittest
 from pathlib import Path
@@ -7,20 +6,22 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from qualisys.compare_angles import _read_events, compare_trial
+from qualisys.compare_angles import _read_events, compare_trial, write_event_templates
 from qualisys.config import ACTION_PIPELINES, ANGLE_COLUMNS
 from qualisys.run_qualisys import build_qualisys_angles, read_qtm_3d_tsv
-from qualisys.trials import Trial, discover_trials, load_trials, parse_trial_stem
+from qualisys.trials import Trial, discover_trials, parse_trial_stem
 
 
 class QualisysFrameworkTests(unittest.TestCase):
     def test_five_action_filename_rules(self):
         cases = {
-            "张三_正手": ("张三", "forehand"),
-            "张三_反手": ("张三", "backhand"),
-            "张三_正手截击": ("张三", "forehand_volley"),
-            "张三_反手截击": ("张三", "backhand_volley"),
-            "张三_发球": ("张三", "serve"),
+            "fy_zs_1": ("fy", "forehand", 1),
+            "fy_fs_2": ("fy", "backhand", 2),
+            "fy_jjzs_3": ("fy", "forehand_volley", 3),
+            "fy_jjfs_4": ("fy", "backhand_volley", 4),
+            "fy_fq_5": ("fy", "serve", 5),
+            "player_one_forehand_1": ("player_one", "forehand", 1),
+            "player_one_backhand_volley_2": ("player_one", "backhand_volley", 2),
         }
         for stem, expected in cases.items():
             with self.subTest(stem=stem):
@@ -35,56 +36,26 @@ class QualisysFrameworkTests(unittest.TestCase):
             qtm_root = root / "qtm"
             video_root.mkdir()
             qtm_root.mkdir()
-            (video_root / "张三_正手截击.mp4").touch()
-            (qtm_root / "张三_正手截击.tsv").touch()
+            (video_root / "fy_jjzs_1.mp4").touch()
+            (qtm_root / "fy_jjzs_1.tsv").touch()
 
             trials = discover_trials(video_root=video_root, qtm_root=qtm_root)
 
             self.assertEqual(len(trials), 1)
-            self.assertEqual(trials[0].trial_id, "张三_正手截击")
+            self.assertEqual(trials[0].trial_id, "fy_jjzs_1")
             self.assertEqual(trials[0].action, "forehand_volley")
+            self.assertEqual(trials[0].trial_number, 1)
 
-    def test_manifest_pairs_video_and_3d_without_force_plate_columns(self):
+    def test_unmatched_pair_is_reported(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
-            trial_dir = root / "trial_001"
-            trial_dir.mkdir()
-            (trial_dir / "video.mp4").touch()
-            (trial_dir / "markers_3d.tsv").touch()
-            manifest = root / "manifest.csv"
-            with manifest.open("w", encoding="utf-8", newline="") as handle:
-                writer = csv.writer(handle)
-                writer.writerow(
-                    [
-                        "trial_id",
-                        "participant_id",
-                        "action",
-                        "handedness",
-                        "view_plane",
-                        "video_file",
-                        "qualisys_3d_file",
-                        "marker_map_file",
-                        "notes",
-                    ]
-                )
-                writer.writerow(
-                    [
-                        "trial_001",
-                        "P001",
-                        "forehand",
-                        "right",
-                        "ZY",
-                        "trial_001/video.mp4",
-                        "trial_001/markers_3d.tsv",
-                        "",
-                        "paired",
-                    ]
-                )
-
-            trials = load_trials(manifest)
-            self.assertEqual(len(trials), 1)
-            self.assertEqual(trials[0].trial_id, "trial_001")
-            self.assertEqual(trials[0].video_path, (trial_dir / "video.mp4").resolve())
+            video_root = root / "video"
+            qtm_root = root / "qtm"
+            video_root.mkdir()
+            qtm_root.mkdir()
+            (video_root / "fy_zs_1.avi").touch()
+            with self.assertRaisesRegex(FileNotFoundError, "缺少同名 QTM"):
+                discover_trials(video_root=video_root, qtm_root=qtm_root)
 
     def test_qtm_reader_rejects_analog_export(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -133,7 +104,7 @@ class QualisysFrameworkTests(unittest.TestCase):
                 trial_id="trial_001",
                 participant_id="P001",
                 action="forehand",
-                handedness="right",
+                trial_number=1,
                 view_plane="ZY",
                 video_path=root / "unused.mp4",
                 qualisys_3d_path=root / "unused.tsv",
@@ -166,6 +137,27 @@ class QualisysFrameworkTests(unittest.TestCase):
             for angle in ANGLE_COLUMNS:
                 self.assertTrue(np.allclose(aligned[f"{angle}_error"], 0.0, atol=1e-10))
             self.assertTrue(np.allclose(metrics["mae"], 0.0, atol=1e-10))
+
+    def test_event_template_contains_action_specific_definition(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            trial = Trial(
+                trial_id="fy_fq_1",
+                participant_id="fy",
+                action="serve",
+                trial_number=1,
+                view_plane="ZY",
+                video_path=root / "unused.avi",
+                qualisys_3d_path=root / "unused.tsv",
+            )
+            with (
+                patch("qualisys.trials.INTERMEDIATE_ROOT", root / "intermediate"),
+                patch("qualisys.trials.OUTPUT_ROOT", root / "output"),
+            ):
+                video_events, _ = write_event_templates(trial)
+                template = pd.read_csv(video_events)
+            self.assertIn("definition", template.columns)
+            self.assertIn("发球动作启动", template.loc[0, "definition"])
 
     def test_event_order_must_be_start_contact_end(self):
         with tempfile.TemporaryDirectory() as temp_dir:

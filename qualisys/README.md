@@ -1,85 +1,159 @@
-# RTMPose–Qualisys 验证模块
+# RTMPose–Qualisys 八角验证：使用说明
 
-本目录独立完成同一次采集的单目视频与 Qualisys 3D 轨迹对比，不依赖前端、后端或测力台。
-每个 `trial_id` 必须对应真正同步采集的一个视频和一个 3D marker TSV；当前目录里名称相近但
-并非同次采集的文件不能放在同一试次中比较。
+本目录比较同一次采集的侧面视频与 Qualisys 3D marker 数据，只计算左右肩、肘、髋、膝
+8 个无符号二维角度，不使用测力台，也不需要 `manifest.csv`。
 
-## 文件职责
+## 你实际需要认识的文件
 
-| 文件 | 一句话说明 |
+| 文件 | 用途 |
 |---|---|
-| `config.py` | 保存数据目录、8 个角度列、ZY 平面与默认 marker 映射。 |
-| `trials.py` | 自动配对 video/qtm 同名文件，或读取可选 `manifest.csv`。 |
-| `run_rtmpose.py` | 对试次视频运行项目已有 RTMPose，独立生成 8 角 CSV。 |
-| `run_qualisys.py` | 读取 3D TSV、投影到 ZY 平面并按相同三点定义生成 8 角 CSV。 |
-| `compare_angles.py` | 用人工事件锚点逐动作对齐、重采样并输出初步一致性指标。 |
-| `run_validation.py` | 一次运行一个或多个阶段的总入口。 |
-| `data/` | 保存本地输入、中间表和最终验证结果，实验数据不会提交到 Git。 |
+| `run_validation.py` | 你在 PyCharm 中直接运行的总入口，只需修改顶部 3 个参数。 |
+| `trials.py` | 自动扫描并配对 `video/` 与 `qtm/` 中的同名文件。 |
+| `run_rtmpose.py` | 阶段 1A：从视频生成 RTMPose 8 角 CSV。 |
+| `run_qualisys.py` | 阶段 1B：从 3D TSV 的 ZY 平面生成 Qualisys 8 角 CSV。 |
+| `compare_angles.py` | 阶段 2/3：生成事件表，并按事件对齐后计算误差。 |
+| `config.py` | 保存五动作名称、事件定义、8 个角度列及 Qualisys 点位映射。 |
 
-## 输入组织
+通常只运行 `run_validation.py`，其他文件不用单独打开。
 
-不放测力台的 `_a_1.tsv`、`_a_2.tsv`。默认输入结构是：
+## 第一步：给输入文件命名
+
+视频和 TSV 主文件名必须完全相同，格式是：
+
+```text
+英文名_英文动作_编号
+```
+
+你的动作缩写已经支持：
+
+| 缩写 | 动作 | 示例配对 |
+|---|---|---|
+| `zs` | 正手 | `video/fy_zs_1.avi` ↔ `qtm/fy_zs_1.tsv` |
+| `fs` | 反手 | `video/fy_fs_1.avi` ↔ `qtm/fy_fs_1.tsv` |
+| `jjzs` | 正手截击 | `video/fy_jjzs_1.avi` ↔ `qtm/fy_jjzs_1.tsv` |
+| `jjfs` | 反手截击 | `video/fy_jjfs_1.avi` ↔ `qtm/fy_jjfs_1.tsv` |
+| `fq` | 发球 | `video/fy_fq_1.avi` ↔ `qtm/fy_fq_1.tsv` |
+
+也支持完整英文动作名，例如 `tom_forehand_1`、`tom_backhand_volley_2`。末尾编号必须是
+1、2、3……这样的正整数。
+
+文件放置位置：
 
 ```text
 qualisys/data/input/
-├── video/
-│   ├── 张三_正手.mp4
-│   ├── 张三_正手截击.mp4
-│   └── 张三_发球.mp4
-├── qtm/
-│   ├── 张三_正手.tsv
-│   ├── 张三_正手截击.tsv
-│   └── 张三_发球.tsv
-├── manifest.example.csv     # 可选清单格式示例
-└── marker_map.example.json  # 可选点位映射格式示例
+├── video/                 # 只放视频
+│   ├── fy_zs_1.avi
+│   └── fy_fq_1.avi
+└── qtm/                   # 只放 3D TSV，不放测力台文件
+    ├── fy_zs_1.tsv
+    └── fy_fq_1.tsv
 ```
 
-视频与 TSV 主文件名完全相同时自动配对，不需要创建 `manifest.csv`。文件名必须是
-`人名_动作`，动作后缀支持：正手、反手、正手截击、反手截击、发球。自动模式默认右手持拍。
+左手球员不需要额外设置：本实验输出左右两侧全部 8 角，水平翻转侧面机位不会改变三点夹角
+大小。比较时仍然保持 RTMPose 左角对 Qualisys 左角、右角对右角。
 
-`manifest.example.csv` 只是可选的试次索引模板：需要设置左手、使用不同文件名、自定义 marker
-映射或记录备注时，才复制为 `manifest.csv`。它不会参与角度计算，也不是程序输出。
+## 第二步：在 PyCharm 运行角度提取
 
-## 推荐运行顺序
+打开 `qualisys/run_validation.py`，在顶部找到：
+
+```python
+RUN_MODE = "extract"
+TRIAL_ID = ""  # 留空处理全部配对；也可填写 "fy_zs_1"
+DEVICE = "cuda:0"
+```
+
+设置 `RUN_MODE = "extract"` 后右键运行。每个配对会生成：
+
+```text
+qualisys/data/intermediate/fy_zs_1/
+├── rtmpose_8_angles.csv
+└── qualisys_8_angles.csv
+```
+
+这一步不做时间对齐，只分别计算两套角度。
+
+## 第三步：生成并填写动作时间表
+
+把 `RUN_MODE` 改成：
+
+```python
+RUN_MODE = "prepare_events"
+```
+
+再次运行，程序会在每个试次的 `intermediate` 目录生成：
+
+- `video_events.csv`：填写视频中的事件秒数。
+- `qualisys_events.csv`：填写 QTM 中相同事件的相对秒数。
+
+每张表都有四列：
+
+| 列 | 怎么填 |
+|---|---|
+| `repetition` | 文件中第几次完整动作，从 1 开始。 |
+| `event` | 固定为 `start`、`contact`、`end`，不要修改。 |
+| `time` | 你需要填写的秒数。 |
+| `definition` | 程序根据动作写入的判断标准，不要修改。 |
+
+如果一个文件里有 5 次击球，就保留 15 行：每个 `repetition` 都要有三行事件。两张表的
+`repetition=1` 必须是同一次击球，不能只按出现顺序猜测。
+
+视频时间以第一帧为 0 秒。Qualisys 时间使用 `qualisys_8_angles.csv` 的 `time` 列，该列已经
+自动执行“原始 QTM Time − 第一行 Time”。
+
+## 五种动作的时间划分
+
+角度公式不需要分五套，五种动作始终使用相同 8 个三点夹角。需要分别处理的是动作标签和
+`start/contact/end` 的物理定义。相似动作共用规则，因此实际是三组：
+
+| 动作组 | `start` | `contact` | `end` |
+|---|---|---|---|
+| 正手 `zs`、反手 `fs` | 后摆结束，持拍手或拍头开始持续向击球方向加速 | 球拍触球；看不清时取拍头最接近来球的位置 | 随挥结束后，持拍手或拍头速度第一次明显降到低谷 |
+| 正手截击 `jjzs`、反手截击 `jjfs` | 准备姿势后，球拍开始持续向来球方向移动 | 球拍触球；看不清时取拍面最接近来球的位置 | 短促挡击结束后，球拍速度第一次明显降到低谷 |
+| 发球 `fq` | 持拍手或拍头离开稳定准备位置，发球动作正式启动 | 球拍触球；看不清时取拍头进入最高击球区域的时刻 | 落地随挥完成后，持拍手或拍头速度第一次明显降到低谷 |
+
+正手和反手可以用同一判断逻辑，正手截击和反手截击也可以用同一逻辑；但五种动作仍分别
+保存和统计，不能把正手截击与普通正手合并。
+
+## 第四步：运行对齐和指标计算
+
+两张事件表填写完成后，把顶部参数改为：
+
+```python
+RUN_MODE = "compare"
+```
+
+再次运行，结果保存在：
+
+```text
+qualisys/data/output/fy_zs_1/
+├── aligned_angles.csv     # 视频每帧对应的两套角度和逐帧误差
+├── angle_metrics.csv      # MAE、RMSE、bias、LoA、相关、CCC 等
+├── event_metrics.csv      # start/contact/end 三个事件处的角度误差
+└── alignment_qc.csv       # 时间映射斜率、截距、锚点残差和有效帧数
+```
+
+程序对每次动作拟合 `t_qualisys = a × t_video + b`，Qualisys 100 Hz 曲线被插值到视频帧
+时刻。同一次动作的 8 个角共用一个映射，不能逐关节移动曲线来人为降低误差。
+
+## 可选命令行方式
+
+不使用 PyCharm 时，也可以运行：
 
 ```powershell
-conda activate fytennis
-
-# 1. 分别生成视频与 Qualisys 八角 CSV
-python -m qualisys.run_rtmpose --trial 张三_正手
-python -m qualisys.run_qualisys --trial 张三_正手
-
-# 2. 创建事件模板，人工填写每个动作的 start/contact/end 秒数
-python -m qualisys.compare_angles --trial 张三_正手 --prepare-events
-
-# 3. 对齐和比较
-python -m qualisys.compare_angles --trial 张三_正手
+python -m qualisys.run_validation --mode extract --trial fy_zs_1
+python -m qualisys.run_validation --mode prepare_events --trial fy_zs_1
+python -m qualisys.run_validation --mode compare --trial fy_zs_1
 ```
 
-也可用总入口选择阶段：
+不传 `--trial` 会处理全部同名配对。
 
-```powershell
-python -m qualisys.run_validation --trial 张三_正手 --stage rtmpose --stage qualisys
-python -m qualisys.run_validation --trial 张三_正手 --prepare-events
-python -m qualisys.run_validation --trial 张三_正手 --stage compare
-```
+## 当前计算注意事项
 
-不传 `--trial` 会处理自动发现或清单中的全部试次。RTMPose 阶段依赖 CUDA、模型权重和真实视频；
-Qualisys 转换与 CSV 对比阶段只依赖 NumPy/Pandas。
+- Qualisys 只使用 Z/Y 两轴，计算与 RTMPose 相同的 0–180° 无符号内角。
+- 正手截击和反手截击分别统计，但 RTMPose 都复用已有 `volley` 姿态入口，因为角度公式相同。
+- 当前髋点使用同侧 ASIS/PSIS 中点作为临时近似；正式实验最好换成 QTM Skeleton 髋关节中心。
+- QTM 的 `TRAJECTORY_TYPES=Mixed` 可能已经包含补点；当前 Qualisys 转换不会再次插值。
+- Web 页面仍保持正手、反手、发球、截击四类，本模块的五动作拆分不会影响前端。
 
-五类实验动作中的正手截击和反手截击会分别保存和统计，但 RTMPose 的 8 角计算都复用 Web
-已有的 `volley` 姿态入口，因为三点角度公式完全相同。Web 页面仍保持原来的四类动作，不拆分。
-
-## 计算边界
-
-- 两套时间都以各自文件首帧归零，帧率不同不需要逐帧编号相同。
-- 每个重复动作使用开始、击球、结束事件拟合 `t_qualisys = a × t_video + b`。
-- 同一重复动作的 8 个角度共用同一时间映射，不能逐关节移动曲线来降低误差。
-- Qualisys 100 Hz 曲线插值到视频帧时刻；这不会把视频虚构成 100 Hz 数据。
-- 主比较为 ZY 平面无符号内角，不拿 Qualisys 三维角直接比较 RTMPose 二维角。
-- 当前髋点默认使用同侧 ASIS/PSIS 中点，只是临时近似；正式金标准应优先导出 QTM
-  Skeleton 的髋关节中心，并通过 `marker_map_file` 或后续骨架读取器替换。
-- QTM 中 `TRAJECTORY_TYPES=Mixed` 可能包含补点；当前转换不再次插值，后续应补充质量标记统计。
-
-完整实验组织、输出解释与后续信效度统计见
+信效度指标和实验质量控制的详细说明见
 [`docs/qualisys_validation.md`](../docs/qualisys_validation.md)。

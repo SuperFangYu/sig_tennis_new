@@ -1,2 +1,0 @@
-trial_id,participant_id,action,handedness,view_plane,video_file,qualisys_3d_file,marker_map_file,notes
-张三_正手,张三,forehand,right,ZY,video/张三_正手.mp4,qtm/张三_正手.tsv,,可选清单示例；同名自动配对时无需创建manifest.csv

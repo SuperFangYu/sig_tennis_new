@@ -18,7 +18,7 @@ import pandas as pd
 
 from algorithm.common.action_angles import run_action_angles_csv
 from algorithm.common.pose_features import EIGHT_ANGLE_COLUMNS
-from qualisys.config import ACTION_PIPELINES, DEFAULT_MANIFEST
+from qualisys.config import ACTION_PIPELINES
 from qualisys.trials import Trial, load_trials, select_trials
 
 
@@ -47,18 +47,12 @@ def run_rtmpose_trial(trial: Trial, *, device: str = "cuda:0") -> dict[str, Any]
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="按自动配对或可选清单生成 RTMPose 八角 CSV。")
-    parser.add_argument(
-        "--manifest",
-        type=Path,
-        default=DEFAULT_MANIFEST,
-        help="可选 manifest.csv；不存在时自动扫描 input/video 与 input/qtm",
-    )
+    parser = argparse.ArgumentParser(description="按 video/qtm 同名文件生成 RTMPose 八角 CSV。")
     parser.add_argument("--trial", action="append", dest="trial_ids", help="只处理指定 trial_id，可重复")
     parser.add_argument("--device", default="cuda:0")
     args = parser.parse_args()
 
-    trials = select_trials(load_trials(args.manifest, validate_files=False), args.trial_ids)
+    trials = select_trials(load_trials(validate_files=False), args.trial_ids)
     for trial in trials:
         result = run_rtmpose_trial(trial, device=args.device)
         print(f"[{trial.trial_id}] {result['csv']}")

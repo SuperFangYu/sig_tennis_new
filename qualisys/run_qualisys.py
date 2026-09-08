@@ -6,7 +6,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 from pathlib import Path
 import sys
 from typing import Mapping, Sequence
@@ -19,7 +18,7 @@ import numpy as np
 import pandas as pd
 
 from algorithm.common.pose_features import calculate_angle
-from qualisys.config import ANGLE_COLUMNS, DEFAULT_MANIFEST, DEFAULT_MARKER_MAP
+from qualisys.config import ANGLE_COLUMNS, DEFAULT_MARKER_MAP
 from qualisys.trials import Trial, load_trials, select_trials
 
 JOINTS = tuple(DEFAULT_MARKER_MAP)
@@ -48,26 +47,6 @@ def read_qtm_3d_tsv(path: Path | str) -> tuple[dict[str, str], pd.DataFrame]:
     if not {"Frame", "Time"}.issubset(data.columns):
         raise ValueError(f"Qualisys 数据缺少 Frame/Time 列: {path}")
     return metadata, data
-
-
-def load_marker_map(path: Path | None) -> dict[str, tuple[str, ...]]:
-    """加载可选 JSON 点位映射；未提供时使用当前实验默认映射。"""
-    if path is None:
-        return dict(DEFAULT_MARKER_MAP)
-    with path.open("r", encoding="utf-8-sig") as handle:
-        raw = json.load(handle)
-    missing = [joint for joint in JOINTS if joint not in raw]
-    if missing:
-        raise ValueError(f"点位映射缺少关节: {', '.join(missing)}")
-    mapping: dict[str, tuple[str, ...]] = {}
-    for joint in JOINTS:
-        markers = raw[joint]
-        if isinstance(markers, str):
-            markers = [markers]
-        if not isinstance(markers, list) or not markers or not all(isinstance(item, str) for item in markers):
-            raise ValueError(f"点位映射 {joint} 必须是非空字符串列表")
-        mapping[joint] = tuple(markers)
-    return mapping
 
 
 def _joint_zy(data: pd.DataFrame, markers: Sequence[str]) -> np.ndarray:
@@ -128,8 +107,7 @@ def run_qualisys_trial(trial: Trial) -> dict[str, object]:
     trial.validate_qualisys()
     trial.ensure_output_dirs()
     metadata, data = read_qtm_3d_tsv(trial.qualisys_3d_path)
-    marker_map = load_marker_map(trial.marker_map_path)
-    angles = build_qualisys_angles(data, marker_map)
+    angles = build_qualisys_angles(data, DEFAULT_MARKER_MAP)
     output_path = trial.intermediate_dir / "qualisys_8_angles.csv"
     angles.to_csv(output_path, index=False, encoding="utf-8-sig")
     return {
@@ -141,17 +119,11 @@ def run_qualisys_trial(trial: Trial) -> dict[str, object]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="按自动配对或可选清单生成 Qualisys ZY 平面八角 CSV。")
-    parser.add_argument(
-        "--manifest",
-        type=Path,
-        default=DEFAULT_MANIFEST,
-        help="可选 manifest.csv；不存在时自动扫描 input/video 与 input/qtm",
-    )
+    parser = argparse.ArgumentParser(description="按 video/qtm 同名文件生成 Qualisys ZY 平面八角 CSV。")
     parser.add_argument("--trial", action="append", dest="trial_ids", help="只处理指定 trial_id，可重复")
     args = parser.parse_args()
 
-    trials = select_trials(load_trials(args.manifest, validate_files=False), args.trial_ids)
+    trials = select_trials(load_trials(validate_files=False), args.trial_ids)
     for trial in trials:
         result = run_qualisys_trial(trial)
         print(f"[{trial.trial_id}] {result['csv']}")

@@ -1,52 +1,34 @@
-"""发现或读取成对试次，并把输入文件转换为统一的 Trial 对象。
-
-正常使用不需要写 manifest：video/ 与 qtm/ 中同名文件会自动配对。只有需要覆盖持拍手、
-点位映射或备注时，才复制 manifest.example.csv 为 manifest.csv。
-"""
+"""扫描 video/ 与 qtm/，按 `英文名_英文动作_编号` 自动建立成对试次。"""
 
 from __future__ import annotations
 
-import csv
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Iterable
 
 from .config import (
     ACTION_FILENAME_ALIASES,
-    DEFAULT_MANIFEST,
     INTERMEDIATE_ROOT,
     OUTPUT_ROOT,
     QTM_INPUT_ROOT,
-    SUPPORTED_ACTIONS,
     VIDEO_INPUT_ROOT,
 )
 
 VIDEO_EXTENSIONS = (".mp4", ".mov", ".avi", ".mkv", ".m4v")
 
-REQUIRED_COLUMNS = (
-    "trial_id",
-    "participant_id",
-    "action",
-    "handedness",
-    "view_plane",
-    "video_file",
-    "qualisys_3d_file",
-)
-
 
 @dataclass(frozen=True)
 class Trial:
-    """清单中的一个同步采集试次。"""
+    """由一对同名视频/TSV 构成的同步采集试次。"""
 
     trial_id: str
     participant_id: str
     action: str
-    handedness: str
+    trial_number: int
     view_plane: str
     video_path: Path
     qualisys_3d_path: Path
-    marker_map_path: Path | None = None
-    notes: str = ""
 
     @property
     def intermediate_dir(self) -> Path:
@@ -62,8 +44,6 @@ class Trial:
 
     def validate_files(self) -> None:
         missing = [path for path in (self.video_path, self.qualisys_3d_path) if not path.is_file()]
-        if self.marker_map_path is not None and not self.marker_map_path.is_file():
-            missing.append(self.marker_map_path)
         if missing:
             details = "\n".join(f"- {path}" for path in missing)
             raise FileNotFoundError(f"试次 {self.trial_id} 缺少文件：\n{details}")
@@ -73,44 +53,26 @@ class Trial:
             raise FileNotFoundError(f"试次 {self.trial_id} 缺少视频: {self.video_path}")
 
     def validate_qualisys(self) -> None:
-        missing = [path for path in (self.qualisys_3d_path, self.marker_map_path) if path is not None and not path.is_file()]
-        if missing:
-            details = "\n".join(f"- {path}" for path in missing)
-            raise FileNotFoundError(f"试次 {self.trial_id} 缺少 Qualisys 输入：\n{details}")
+        if not self.qualisys_3d_path.is_file():
+            raise FileNotFoundError(
+                f"试次 {self.trial_id} 缺少 Qualisys 3D TSV: {self.qualisys_3d_path}"
+            )
 
 
-def _resolve_input_path(value: str, input_root: Path) -> Path:
-    normalized = (value or "").strip()
-    if not normalized:
-        raise ValueError("manifest.csv 的视频或 Qualisys 文件路径不能为空")
-    path = Path(normalized).expanduser()
-    return path.resolve() if path.is_absolute() else (input_root / path).resolve()
-
-
-def normalize_experiment_action(value: str) -> str:
-    """把中英文动作名称统一为五类实验动作代码。"""
-    normalized = str(value).strip().lower()
-    alias_lookup = {key.lower(): action for key, action in ACTION_FILENAME_ALIASES.items()}
-    action = alias_lookup.get(normalized, normalized)
-    if action not in SUPPORTED_ACTIONS:
-        supported = "、".join(SUPPORTED_ACTIONS)
-        raise ValueError(f"无法识别动作 {value!r}，支持: {supported}")
-    return action
-
-
-def parse_trial_stem(stem: str) -> tuple[str, str]:
-    """解析 `人名_动作` 文件名，返回 `(人名, 五类动作代码)`。"""
+def parse_trial_stem(stem: str) -> tuple[str, str, int]:
+    """解析 `英文名_英文动作_编号`，返回 `(姓名, 五类动作代码, 编号)`。"""
     aliases = sorted(ACTION_FILENAME_ALIASES, key=len, reverse=True)
-    lower_stem = stem.lower()
     for alias in aliases:
-        suffix = f"_{alias.lower()}"
-        if lower_stem.endswith(suffix):
-            participant = stem[: -len(suffix)].strip("_")
-            if not participant:
-                raise ValueError(f"文件名缺少人名: {stem!r}")
-            return participant, ACTION_FILENAME_ALIASES[alias]
-    expected = "、".join(f"人名_{alias}" for alias in ("正手", "反手", "正手截击", "反手截击", "发球"))
-    raise ValueError(f"文件名不符合五动作规则: {stem!r}；示例: {expected}")
+        pattern = rf"^(?P<participant>.+)_{re.escape(alias)}_(?P<number>[1-9]\d*)$"
+        matched = re.match(pattern, stem, flags=re.IGNORECASE)
+        if matched:
+            participant = matched.group("participant").strip("_")
+            if participant:
+                return participant, ACTION_FILENAME_ALIASES[alias], int(matched.group("number"))
+    raise ValueError(
+        f"文件名不符合 `英文名_英文动作_编号`: {stem!r}；"
+        "例如 fy_zs_1、fy_jjfs_1、fy_serve_1"
+    )
 
 
 def _unique_files_by_stem(root: Path, extensions: tuple[str, ...]) -> dict[str, Path]:
@@ -132,10 +94,7 @@ def discover_trials(
     video_root: Path = VIDEO_INPUT_ROOT,
     qtm_root: Path = QTM_INPUT_ROOT,
 ) -> list[Trial]:
-    """从 `input/video` 与 `input/qtm` 自动发现同名成对文件。
-
-    自动模式默认按右手持拍处理；左手受试者请使用 manifest.csv 明确填写 handedness。
-    """
+    """从 `input/video` 与 `input/qtm` 自动发现主文件名完全相同的文件。"""
     videos = _unique_files_by_stem(video_root, VIDEO_EXTENSIONS)
     qtm_files = _unique_files_by_stem(qtm_root, (".tsv",))
     video_only = sorted(set(videos) - set(qtm_files))
@@ -150,13 +109,13 @@ def discover_trials(
 
     trials: list[Trial] = []
     for stem in sorted(set(videos) & set(qtm_files)):
-        participant, action = parse_trial_stem(stem)
+        participant, action, trial_number = parse_trial_stem(stem)
         trials.append(
             Trial(
                 trial_id=stem,
                 participant_id=participant,
                 action=action,
-                handedness="right",
+                trial_number=trial_number,
                 view_plane="ZY",
                 video_path=videos[stem],
                 qualisys_3d_path=qtm_files[stem],
@@ -169,64 +128,9 @@ def discover_trials(
     return trials
 
 
-def load_trials(
-    manifest_path: Path | str = DEFAULT_MANIFEST,
-    *,
-    validate_files: bool = True,
-) -> list[Trial]:
-    """优先读取 manifest.csv；文件不存在时按 `人名_动作` 自动配对。"""
-    manifest_path = Path(manifest_path).expanduser().resolve()
-    if not manifest_path.is_file():
-        return discover_trials(validate_pairs=validate_files)
-
-    input_root = manifest_path.parent
-    with manifest_path.open("r", encoding="utf-8-sig", newline="") as handle:
-        reader = csv.DictReader(handle)
-        headers = tuple(reader.fieldnames or ())
-        missing_headers = [name for name in REQUIRED_COLUMNS if name not in headers]
-        if missing_headers:
-            raise ValueError(f"manifest.csv 缺少列: {', '.join(missing_headers)}")
-        rows = list(reader)
-
-    trials: list[Trial] = []
-    seen: set[str] = set()
-    for line_number, row in enumerate(rows, start=2):
-        trial_id = (row.get("trial_id") or "").strip()
-        if not trial_id:
-            raise ValueError(f"manifest.csv 第 {line_number} 行 trial_id 为空")
-        if trial_id in seen:
-            raise ValueError(f"manifest.csv trial_id 重复: {trial_id}")
-        if Path(trial_id).name != trial_id or trial_id in {".", ".."}:
-            raise ValueError(f"trial_id 只能是单层目录名: {trial_id!r}")
-        seen.add(trial_id)
-
-        action = normalize_experiment_action(row.get("action") or "")
-        handedness = (row.get("handedness") or "").strip().lower()
-        if handedness not in {"left", "right"}:
-            raise ValueError(f"试次 {trial_id} 的 handedness 必须是 left 或 right")
-        view_plane = (row.get("view_plane") or "ZY").strip().upper()
-        if view_plane != "ZY":
-            raise ValueError(f"当前框架只支持 ZY 平面，试次 {trial_id} 填写的是 {view_plane!r}")
-
-        marker_value = (row.get("marker_map_file") or "").strip()
-        trial = Trial(
-            trial_id=trial_id,
-            participant_id=(row.get("participant_id") or "").strip(),
-            action=action,
-            handedness=handedness,
-            view_plane=view_plane,
-            video_path=_resolve_input_path(row.get("video_file") or "", input_root),
-            qualisys_3d_path=_resolve_input_path(row.get("qualisys_3d_file") or "", input_root),
-            marker_map_path=_resolve_input_path(marker_value, input_root) if marker_value else None,
-            notes=(row.get("notes") or "").strip(),
-        )
-        if validate_files:
-            trial.validate_files()
-        trials.append(trial)
-
-    if not trials:
-        raise ValueError("manifest.csv 没有试次记录")
-    return trials
+def load_trials(*, validate_files: bool = True) -> list[Trial]:
+    """项目统一入口：直接扫描两个输入目录，不再读取 manifest。"""
+    return discover_trials(validate_pairs=validate_files)
 
 
 def select_trials(trials: Iterable[Trial], trial_ids: Iterable[str] | None = None) -> list[Trial]:
@@ -238,16 +142,14 @@ def select_trials(trials: Iterable[Trial], trial_ids: Iterable[str] | None = Non
     selected = [trial for trial in all_trials if trial.trial_id in requested]
     missing = requested - {trial.trial_id for trial in selected}
     if missing:
-        raise ValueError(f"manifest.csv 中不存在试次: {', '.join(sorted(missing))}")
+        raise ValueError(f"输入目录中不存在试次: {', '.join(sorted(missing))}")
     return selected
 
 
 __all__ = [
-    "REQUIRED_COLUMNS",
     "Trial",
     "discover_trials",
     "load_trials",
-    "normalize_experiment_action",
     "parse_trial_stem",
     "select_trials",
 ]

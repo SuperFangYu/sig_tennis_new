@@ -11,8 +11,6 @@ data/manual/output/*
 !data/manual/output/README.md
 qualisys/data/input/*
 !qualisys/data/input/README.md
-!qualisys/data/input/manifest.example.csv
-!qualisys/data/input/marker_map.example.json
 !qualisys/data/input/video/
 !qualisys/data/input/qtm/
 qualisys/data/input/video/*

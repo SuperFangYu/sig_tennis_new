@@ -92,13 +92,11 @@ sig_tennis_new/
 | 文件 | 一句话说明 |
 |---|---|
 | `qualisys/config.py` | 定义验证目录、8 角列和默认 Qualisys marker 映射。 |
-| `qualisys/trials.py` | 自动配对 video/qtm 中同名的五动作文件，或读取可选清单。 |
+| `qualisys/trials.py` | 按 `英文名_英文动作_编号` 自动配对 video/qtm 中的同名文件。 |
 | `qualisys/run_rtmpose.py` | 独立生成视频的 RTMPose 8 角 CSV。 |
 | `qualisys/run_qualisys.py` | 把 Qualisys 3D marker 投影到 ZY 并生成同定义 8 角 CSV。 |
 | `qualisys/compare_angles.py` | 用逐动作人工事件拟合时间映射并生成初步误差指标。 |
 | `qualisys/run_validation.py` | 按需串联 RTMPose、Qualisys 和 compare 三个阶段。 |
-| `qualisys/data/input/manifest.example.csv` | 展示需要覆盖自动配对信息时使用的可选清单格式。 |
-| `qualisys/data/input/marker_map.example.json` | 展示可覆盖的 marker–关节映射格式。 |
 
 ### 前端、配置与测试文件
 
@@ -132,7 +130,7 @@ sig_tennis_new/
 | `data/outputs/` | 保存按运行时间与视频名组织的 Web 分析产物。 |
 | `data/manual/input/` | 保存五动作手动分析视频。 |
 | `data/manual/output/` | 保存手动分析的 8 角 CSV 与叠加视频。 |
-| `qualisys/data/input/video/` | 保存按 `人名_动作` 命名的验证视频。 |
+| `qualisys/data/input/video/` | 保存按 `英文名_英文动作_编号` 命名的验证视频。 |
 | `qualisys/data/input/qtm/` | 保存与视频同名的 Qualisys 3D TSV。 |
 | `qualisys/data/intermediate/` | 保存两套独立角度与人工事件表。 |
 | `qualisys/data/output/` | 保存对齐明细、指标、事件误差和质控表。 |

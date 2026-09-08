@@ -11,7 +11,6 @@ VIDEO_INPUT_ROOT = INPUT_ROOT / "video"
 QTM_INPUT_ROOT = INPUT_ROOT / "qtm"
 INTERMEDIATE_ROOT = DATA_ROOT / "intermediate"
 OUTPUT_ROOT = DATA_ROOT / "output"
-DEFAULT_MANIFEST = INPUT_ROOT / "manifest.csv"
 
 # Web 仍然只有四个动作；下面五类只用于 standalone 与 Qualisys 验证。
 SUPPORTED_ACTIONS = (
@@ -36,7 +35,7 @@ ACTION_LABELS = {
     "serve": "发球",
 }
 
-# 自动配对时按“文件名最后一个下划线后的动作后缀”识别，较长后缀优先。
+# 自动配对按 `英文名_动作_正整数编号` 识别；既支持拼音缩写，也支持完整英文。
 ACTION_FILENAME_ALIASES = {
     "正手截击": "forehand_volley",
     "反手截击": "backhand_volley",
@@ -48,6 +47,11 @@ ACTION_FILENAME_ALIASES = {
     "forehand": "forehand",
     "backhand": "backhand",
     "serve": "serve",
+    "zs": "forehand",
+    "fs": "backhand",
+    "jjzs": "forehand_volley",
+    "jjfs": "backhand_volley",
+    "fq": "serve",
 }
 SUPPORTED_PLANES = ("ZY",)
 
@@ -81,6 +85,35 @@ DEFAULT_MARKER_MAP = {
 
 EVENT_NAMES = ("start", "contact", "end")
 
+# 人工时间标注提示。五类动作分别保存，但相似动作共享同一套物理事件定义。
+EVENT_GUIDES = {
+    "forehand": {
+        "start": "后摆结束后，持拍手/拍头第一次持续向击球方向加速",
+        "contact": "球拍触球帧；看不清时取拍头最接近来球的位置",
+        "end": "随挥结束，持拍手/拍头速度第一次明显降至低谷",
+    },
+    "backhand": {
+        "start": "后摆结束后，持拍手/拍头第一次持续向击球方向加速",
+        "contact": "球拍触球帧；看不清时取拍头最接近来球的位置",
+        "end": "随挥结束，持拍手/拍头速度第一次明显降至低谷",
+    },
+    "forehand_volley": {
+        "start": "准备姿势后，球拍第一次持续向来球方向移动",
+        "contact": "球拍触球帧；看不清时取拍面最接近来球的位置",
+        "end": "短促挡击结束，触球后球拍速度第一次明显降至低谷",
+    },
+    "backhand_volley": {
+        "start": "准备姿势后，球拍第一次持续向来球方向移动",
+        "contact": "球拍触球帧；看不清时取拍面最接近来球的位置",
+        "end": "短促挡击结束，触球后球拍速度第一次明显降至低谷",
+    },
+    "serve": {
+        "start": "发球动作启动：持拍手/拍头离开稳定准备位置并持续运动",
+        "contact": "球拍触球帧；看不清时取拍头达到最高击球区域的时刻",
+        "end": "落地随挥完成，持拍手/拍头速度第一次明显降至低谷",
+    },
+}
+
 
 def ensure_data_directories() -> None:
     """创建本地输入、中间结果和最终结果目录。"""
@@ -94,9 +127,9 @@ __all__ = [
     "ACTION_LABELS",
     "ACTION_PIPELINES",
     "DATA_ROOT",
-    "DEFAULT_MANIFEST",
     "DEFAULT_MARKER_MAP",
     "EVENT_NAMES",
+    "EVENT_GUIDES",
     "INPUT_ROOT",
     "INTERMEDIATE_ROOT",
     "OUTPUT_ROOT",

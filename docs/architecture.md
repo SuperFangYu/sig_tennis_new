@@ -43,7 +43,7 @@ paired video + Qualisys 3D TSV -> qualisys validation -> qualisys/data/output
 
 ## 实验验证边界
 
-`qualisys/data/input/video` 与 `qtm` 中同名的 `人名_动作` 文件组成一个试次；五类动作是
+`qualisys/data/input/video` 与 `qtm` 中同名的 `英文名_英文动作_编号` 文件组成一个试次；五类动作是
 正手、反手、正手截击、反手截击和发球。RTMPose 与 Qualisys
 先独立生成相同列定义的 CSV，再由人工事件表建立逐动作时间映射。测力台文件、肩髋分离角、
 Web 产物和球拍可视化都不进入当前 8 角效度比较。详细约束见
