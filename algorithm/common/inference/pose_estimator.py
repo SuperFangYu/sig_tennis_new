@@ -132,14 +132,14 @@ dataset_meta_info = dict(dataset_name='halpe26', keypoint_info={})
         
         Args:
             config_path: 配置文件路径。如果为 None，将使用默认配置并创建临时配置文件
-            checkpoint_path: 模型权重文件路径。如果为 None，默认使用 algorithm/weights/rtmpose_m_halpe26.pth
+            checkpoint_path: 模型权重文件路径。如果为 None，默认使用 weights/rtmpose_m_halpe26.pth
             device: 推理设备，'cuda:0' 或 'cpu'
         """
-        base_dir = Path(__file__).parent.parent
+        repo_root = Path(__file__).resolve().parents[3]
         
         # 处理配置文件
         if config_path is None:
-            config_dir = base_dir / "configs"
+            config_dir = repo_root / "configs"
             config_dir.mkdir(parents=True, exist_ok=True)
             config_path = config_dir / "rtmpose_m_halpe26.py"
             
@@ -155,7 +155,7 @@ dataset_meta_info = dict(dataset_name='halpe26', keypoint_info={})
         
         # 处理模型权重路径
         if checkpoint_path is None:
-            checkpoint_path = base_dir / "weights" / "rtmpose_m_halpe26.pth"
+            checkpoint_path = repo_root / "weights" / "rtmpose_m_halpe26.pth"
         else:
             checkpoint_path = Path(checkpoint_path)
         

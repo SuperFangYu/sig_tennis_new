@@ -10,7 +10,7 @@
 - **三阶段底色**：不再用掉拍头最低点 `p` 分界；以击球时刻为中心，`hit_window = clip(clip_duration×0.2, 0.2, 0.4)` 秒，绿区为 `[contact−0.65·hit_window, contact+0.35·hit_window]` 与切片求交；金区 `[time_start, t_green_start]`，蓝区 `[t_green_end, time_end]`。
 - 击球帧（索引）：在波峰索引 `p` 与 `end_idx` 闭区间内，对拍头速度 `v = sqrt((∂x)^2 + (∂y)^2)` 取最大值；其中 `∂x = np.gradient(x_clean)`，`∂y = np.gradient(y_clean)`。
 - 每张图保存后调用 `plt.close(fig)`，避免内存泄漏与画布叠加。
-- `POST /api/forehand/analyze` 支持表单字段 `handedness`：`right`（默认）或 `left`。左手时使用镜像后的 X 位移判据，并读取 `left_knee_angle`、`left_elbow_angle`（需使用更新后的 [`algorithm/forehand/rtmpose_csv.py`](../algorithm/forehand/rtmpose_csv.py) 导出的身体 CSV）。
+- `POST /api/forehand/analyze` 支持表单字段 `handedness`：`right`（默认）或 `left`。左手时使用镜像后的 X 位移判据，并读取 `left_knee_angle`、`left_elbow_angle`（需使用更新后的 [`algorithm/forehand/angles_csv.py`](../algorithm/forehand/angles_csv.py) 导出的身体 CSV）。
 
 ## 前端（`Vue/forehand.html`）
 

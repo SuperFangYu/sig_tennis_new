@@ -268,7 +268,223 @@ function createKinematicChartPanelMethods() {
   };
 }
 
-/** @deprecated 保留兼容；新页面请用 fileUrlForAction */
-function fileUrl(relativePath) {
-  return fileUrlForAction(relativePath, "forehand");
+const ACTION_ANALYSIS_CONFIGS = {
+  forehand: {
+    action: "forehand",
+    title: "正手击球",
+    clipTitle: "切分后的正手片段",
+    poseProgress: "身体姿态与特征…",
+    exportProgress: "正手区间切分与导出…",
+    panels: [
+      { kind: "kinetic_chart", label: "动力链图", itemLabel: "片段" },
+      { kind: "speed_cog_chart", label: "拍头速度与身体重心", itemLabel: "片段" },
+    ],
+  },
+  backhand: {
+    action: "backhand",
+    title: "反手击球",
+    clipTitle: "切分后的反手片段",
+    poseProgress: "身体姿态与特征…",
+    exportProgress: "反手区间切分与导出…",
+    panels: [
+      { kind: "kinetic_chart", label: "反手动力链图", itemLabel: "片段" },
+      { kind: "speed_cog_chart", label: "速度与身体重心图", itemLabel: "片段" },
+    ],
+  },
+  serve: {
+    action: "serve",
+    title: "发球",
+    clipTitle: "切分后的发球片段",
+    poseProgress: "身体姿态与发球特征…",
+    exportProgress: "发球切分与图表导出…",
+    panels: [
+      { kind: "serve_trace_chart", label: "发球空间溯源与起跳", itemLabel: "图表" },
+      { kind: "serve_kinetic_chart", label: "发球动力链与蓄力特征", itemLabel: "图表" },
+    ],
+  },
+  volley: {
+    action: "volley",
+    title: "截击",
+    clipTitle: "切分后的截击片段",
+    poseProgress: "身体姿态与截击特征…",
+    exportProgress: "截击切分与图表导出…",
+    panels: [
+      { kind: "volley_trace_chart", label: "截击速度突刺与平稳轨迹图", itemLabel: "图表" },
+      { kind: "volley_kinetic_chart", label: "截击稳定结构动力链图", itemLabel: "图表" },
+    ],
+  },
+};
+
+function analysisConfigFromLocation() {
+  const params = new URLSearchParams(window.location.search);
+  const action = String(params.get("action") || "forehand").toLowerCase();
+  return ACTION_ANALYSIS_CONFIGS[action] || ACTION_ANALYSIS_CONFIGS.forehand;
+}
+
+function createActionAnalysisApp(config) {
+  return {
+    data() {
+      return {
+        config,
+        selectedFile: null,
+        busy: false,
+        statusText: "等待上传",
+        result: null,
+        progressPercent: 0,
+        progressTimer: null,
+        progressHint: "就绪",
+        handedness: "right",
+        primaryPanelOpen: {},
+        primaryPanelRowOpen: {},
+        ...createKinematicUiState(),
+      };
+    },
+    computed: {
+      progressPctRounded() {
+        return Math.round(this.progressPercent);
+      },
+      inputId() {
+        return `analysis-file-${this.config.action}`;
+      },
+      clipItems() {
+        return artifactItemsByKind(this.result && this.result.artifacts, "clip", (path) =>
+          this.fileUrl(path)
+        );
+      },
+      primaryPanels() {
+        return this.config.panels
+          .map((panel) => ({
+            ...panel,
+            items: artifactItemsByKind(
+              this.result && this.result.artifacts,
+              panel.kind,
+              (path) => this.fileUrl(path)
+            ),
+            open: !!this.primaryPanelOpen[panel.kind],
+          }))
+          .filter((panel) => panel.items.length > 0);
+      },
+      ...createKinematicComputed(),
+      ...createKinematicChartPanelsComputed(),
+    },
+    methods: {
+      ...createKinematicMethods(),
+      ...createKinematicChartPanelMethods(),
+      fileUrl(relativePath) {
+        return fileUrlForAction(relativePath, this.config.action);
+      },
+      clearProgressTimer() {
+        if (this.progressTimer) {
+          window.clearInterval(this.progressTimer);
+          this.progressTimer = null;
+        }
+      },
+      hintForProgress(percent) {
+        if (percent < 18) return "正在上传…";
+        if (percent < 45) return "球拍关键点追踪…";
+        if (percent < 72) return this.config.poseProgress;
+        if (percent < 92) return this.config.exportProgress;
+        return "即将完成…";
+      },
+      startProgressSimulation() {
+        this.clearProgressTimer();
+        this.progressPercent = 3;
+        this.progressHint = this.hintForProgress(this.progressPercent);
+        this.progressTimer = window.setInterval(() => {
+          if (this.progressPercent >= 96) return;
+          const remaining = 96 - this.progressPercent;
+          const step = Math.max(0.18, Math.min(1.7, remaining * 0.035));
+          this.progressPercent = Math.min(96, this.progressPercent + step);
+          this.progressHint = this.hintForProgress(this.progressPercent);
+        }, 380);
+      },
+      resetPrimaryPanels() {
+        this.primaryPanelOpen = {};
+        this.primaryPanelRowOpen = {};
+      },
+      openPrimaryPanels() {
+        const open = {};
+        const rows = {};
+        this.config.panels.forEach((panel) => {
+          open[panel.kind] = true;
+          rows[panel.kind] = { 0: true };
+        });
+        this.primaryPanelOpen = open;
+        this.primaryPanelRowOpen = rows;
+      },
+      togglePrimaryPanel(kind) {
+        this.primaryPanelOpen = {
+          ...this.primaryPanelOpen,
+          [kind]: !this.primaryPanelOpen[kind],
+        };
+      },
+      togglePrimaryRow(kind, index) {
+        const rows = this.primaryPanelRowOpen[kind] || {};
+        this.primaryPanelRowOpen = {
+          ...this.primaryPanelRowOpen,
+          [kind]: { ...rows, [index]: !rows[index] },
+        };
+      },
+      isPrimaryRowOpen(kind, index) {
+        const rows = this.primaryPanelRowOpen[kind];
+        return !!(rows && rows[index]);
+      },
+      resetForNewInput() {
+        this.result = null;
+        this.resetPrimaryPanels();
+        this.resetKinematicUi();
+        this.clearProgressTimer();
+        this.progressPercent = 0;
+        this.progressHint = "就绪";
+      },
+      onFile(event) {
+        const file = event.target.files && event.target.files[0];
+        this.selectedFile = file || null;
+        this.resetForNewInput();
+        this.statusText = file ? `已选择：${file.name}` : "等待上传";
+      },
+      async analyze() {
+        if (!this.selectedFile || this.busy) return;
+        this.busy = true;
+        this.statusText = "上传并分析中，请稍候…";
+        this.resetForNewInput();
+        this.startProgressSimulation();
+
+        const form = new FormData();
+        form.append("file", this.selectedFile);
+        form.append("handedness", this.handedness || "right");
+        try {
+          const response = await fetch(`/api/${this.config.action}/analyze`, {
+            method: "POST",
+            body: form,
+          });
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            const detail = typeof error.detail === "string" ? error.detail : JSON.stringify(error.detail || {});
+            throw new Error(detail || response.statusText);
+          }
+          this.result = await response.json();
+          const clipCount = this.clipItems.length;
+          this.statusText =
+            `完成 run_id: ${this.result.run_id != null ? this.result.run_id : "(未知)"}` +
+            (clipCount ? `，共 ${clipCount} 段视频` : "");
+          this.openPrimaryPanels();
+          this.clearProgressTimer();
+          this.progressPercent = 100;
+          this.progressHint = "处理完成";
+          afterAnalyzeLoadKinematic(this);
+        } catch (error) {
+          this.statusText = `失败：${error.message || error}`;
+          this.clearProgressTimer();
+          this.progressPercent = 0;
+          this.progressHint = "处理失败";
+        } finally {
+          this.busy = false;
+        }
+      },
+    },
+    beforeUnmount() {
+      this.clearProgressTimer();
+    },
+  };
 }

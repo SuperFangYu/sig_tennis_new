@@ -32,16 +32,18 @@ sig_tennis_new/
 │   ├── services/           # 分析流水线编排
 │   └── schemas.py          # 请求 / 响应模型
 ├── algorithm/              # 算法模块（按动作类型分目录）
-│   ├── forehand/           # 正手：追踪、姿态、切分、作图
-│   ├── backhand/           # 反手
-│   ├── serve/              # 发球
-│   └── volley/             # 截击
+│   ├── common/             # 公共追踪、姿态、运动学与切分工具
+│   ├── forehand/           # 正手（angles_csv.py 可独立导出角度 CSV）
+│   ├── backhand/           # 反手（angles_csv.py 可独立导出角度 CSV）
+│   ├── serve/              # 发球（angles_csv.py 可独立导出角度 CSV）
+│   └── volley/             # 截击（angles_csv.py 可独立导出角度 CSV）
 ├── Vue/                    # 前端静态资源
 │   ├── index.html          # 首页
-│   ├── forehand.html       # 正手分析页
-│   ├── backhand.html       # 反手分析页
-│   ├── serve.html          # 发球分析页
-│   └── volley.html         # 截击分析页
+│   ├── analysis.html       # 四类动作共用的配置驱动分析页
+│   ├── forehand.html       # 旧地址兼容跳转
+│   ├── backhand.html       # 旧地址兼容跳转
+│   ├── serve.html          # 旧地址兼容跳转
+│   └── volley.html         # 旧地址兼容跳转
 ├── configs/                # RTMPose 模型配置
 ├── weights/                # 模型权重（需自行准备，见下文）
 ├── data/
@@ -87,6 +89,7 @@ pip install -r requirements.txt
 ## 启动
 
 ```bash
+conda activate fytennis
 python main.py
 ```
 
@@ -111,11 +114,27 @@ python main.py
 ```
 上传视频
   → 球拍轨迹追踪（point_track）   → 拍头 CSV + 轨迹图
-  → 人体姿态估计（rtmpose_csv）   → 关节角度 CSV
+  → 人体姿态估计（angles_csv）    → 关键点与关节角度 CSV
   → 无监督动作切分（segmentation）→ 片段 MP4 + 分析图表
 ```
 
 产物按 `data/outputs/{run_id}/{视频名}/` 目录组织，`run_id` 为分析时的时间戳。
+
+## 独立导出人体关键点与角度 CSV
+
+四类动作各有一个可独立调用的入口。它们只运行人体检测和 RTMPose，输出与 Web
+流水线完全相同的关键点、置信度和 2D 关节角 CSV，不进行球拍追踪、动作切分或画图。
+
+```bash
+python -m algorithm.forehand.angles_csv --video input.mp4 --output-dir result_analysis
+python -m algorithm.backhand.angles_csv --video input.mp4 --output-dir result_analysis
+python -m algorithm.serve.angles_csv --video input.mp4 --output-dir result_analysis
+python -m algorithm.volley.angles_csv --video input.mp4 --output-dir result_analysis
+```
+
+可通过 `--device`、`--yolo-conf`、`--kpt-thr`、`--config`、`--checkpoint` 和
+`--yolo-model` 覆盖默认推理参数。Python代码也可以直接导入各模块的
+`run_angles_csv(video_path, output_dir, ...)`。
 
 ## API 接口
 
@@ -166,11 +185,16 @@ python main.py
 ## 补充文档
 
 - [正手动力链图说明](docs/forehand_kinetic_chart.md)
+- [项目结构与开发边界](docs/architecture.md)
+- [独立角度 CSV 计算标准](docs/angle_csv.md)
+- [fytennis 环境记录](docs/environment.md)
+- 历史研究材料位于 `docs/research/`
 
 ## 测试
 
 ```bash
-python -m unittest tests.test_forehand_kinetic_chart -v
+$env:MPLBACKEND = "Agg"
+python -m unittest discover -s tests -v
 ```
 
 ## 许可证

@@ -11,8 +11,14 @@ Vue/node_modules/
 
 # Python 缓存和 IDE（比如 PyCharm）的配置文件
 __pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+.venv/
 .idea/
 .vscode/
+.agents/
+.codex/
 
 # 忽略个人的环境变量或敏感配置
 .env

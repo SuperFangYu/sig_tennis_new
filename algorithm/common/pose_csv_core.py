@@ -14,8 +14,8 @@ from algorithm.common.pose_features import (
     empty_frame_pose_row,
 )
 from algorithm.common.thresholds import HUMAN_KPT_CONF_THRESH
-from algorithm.forehand.detector import TennisDetector
-from algorithm.forehand.pose_estimator import PoseEstimator
+from algorithm.common.inference.detector import TennisDetector
+from algorithm.common.inference.pose_estimator import PoseEstimator
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -41,7 +41,6 @@ def run_pose_csv(
     csv_suffix: 输出文件名 {video}_body_{csv_suffix}.csv
     extra_frame_fn: 在基础特征上追加动作特有列（如 shoulder_turn_x_diff）
     """
-    _ = yolo_conf
     video_path = Path(video_path)
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -61,7 +60,7 @@ def run_pose_csv(
     print(f"🚀 开始分析视频: [{video_name}]")
     print("加载 AI 引擎中...")
 
-    detector = TennisDetector(model_path=str(yolo))
+    detector = TennisDetector(model_path=str(yolo), confidence=yolo_conf)
     pose_estimator = PoseEstimator(
         config_path=str(cfg),
         checkpoint_path=str(ckpt),

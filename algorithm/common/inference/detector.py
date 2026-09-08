@@ -10,20 +10,29 @@ from ultralytics import YOLO
 class TennisDetector:
     """网球场景检测器，使用 YOLOv8 进行人体和网球检测"""
     
-    def __init__(self, model_path: Optional[Union[str, Path]] = None):
+    def __init__(
+        self,
+        model_path: Optional[Union[str, Path]] = None,
+        *,
+        confidence: float = 0.25,
+        iou: float = 0.45,
+    ):
         """
         初始化检测器
         
         Args:
-            model_path: 模型文件路径。如果为 None，默认使用 algorithm/weights/yolov8m.pt
-                       如果文件不存在，YOLO 会自动下载对应的模型
+            model_path: 模型文件路径。如果为 None，默认使用 weights/yolov8m.pt。
+            confidence: YOLO 人体检测置信度阈值。
+            iou: NMS IoU 阈值。
         """
         if model_path is None:
             # 默认模型路径
-            base_dir = Path(__file__).parent.parent
-            model_path = base_dir / "weights" / "yolov8m.pt"
+            repo_root = Path(__file__).resolve().parents[3]
+            model_path = repo_root / "weights" / "yolov8m.pt"
         
         model_path = Path(model_path)
+        self.confidence = float(confidence)
+        self.iou = float(iou)
         
         # 如果模型文件不存在，YOLO 会自动下载
         # 但我们可以先检查路径是否存在，给出友好提示
@@ -65,8 +74,8 @@ class TennisDetector:
         results = self.model.predict(
             frame,
             verbose=False,  # 不输出详细信息
-            conf=0.25,      # 默认置信度阈值
-            iou=0.45        # NMS IoU 阈值
+            conf=self.confidence,
+            iou=self.iou,
         )
         
         # 单张图像时，返回第一个结果对象

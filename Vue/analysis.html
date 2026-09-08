@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>网球动作分析</title>
+    <link rel="stylesheet" href="/assets/app.css" />
+    <script src="/assets/vue.global.prod.js"></script>
+  </head>
+  <body>
+    <div id="app" class="page page--stroke-analysis">
+      <header class="analysis-top">
+        <h1 class="analysis-top-title">{{ config.title }}</h1>
+        <a class="analysis-top-back" href="/index.html">返回首页</a>
+      </header>
+
+      <div class="analysis-columns">
+        <section class="analysis-panel">
+          <div class="analysis-upload-toolbar">
+            <h2 class="analysis-upload-title">上传视频</h2>
+            <div class="analysis-file-slot">
+              <input
+                :id="inputId"
+                type="file"
+                class="analysis-file-input"
+                accept="video/*"
+                :disabled="busy"
+                @change="onFile"
+              />
+              <label :for="inputId" class="analysis-file-label">选择文件</label>
+            </div>
+            <div class="analysis-handedness-tools" role="group" aria-label="持拍手">
+              <span class="analysis-handedness-label">持拍手</span>
+              <label class="analysis-handedness-option">
+                <input v-model="handedness" type="radio" value="right" :disabled="busy" />
+                右手
+              </label>
+              <label class="analysis-handedness-option">
+                <input v-model="handedness" type="radio" value="left" :disabled="busy" />
+                左手
+              </label>
+            </div>
+            <span class="analysis-toolbar-spacer" aria-hidden="true"></span>
+            <button
+              class="btn btn-analysis-analyze"
+              type="button"
+              :disabled="!selectedFile || busy"
+              @click="analyze"
+            >
+              {{ busy ? "分析中…" : "开始分析" }}
+            </button>
+          </div>
+
+          <div class="analysis-progress-block">
+            <div
+              class="analysis-progress-track"
+              role="progressbar"
+              :aria-valuenow="progressPctRounded"
+              aria-valuemin="0"
+              aria-valuemax="100"
+            >
+              <div class="analysis-progress-fill" :style="{ width: progressPercent + '%' }"></div>
+            </div>
+            <div class="analysis-progress-meta">
+              <span class="analysis-progress-pct">{{ progressPctRounded }}%</span>
+              <span class="analysis-progress-hint">{{ progressHint }}</span>
+            </div>
+          </div>
+          <p class="status analysis-status">{{ statusText }}</p>
+        </section>
+
+        <section class="analysis-panel analysis-panel--clips">
+          <h2 class="analysis-clips-title">{{ config.clipTitle }}</h2>
+          <template v-if="result">
+            <p v-if="!clipItems.length" class="media-hint">
+              本次未检出符合条件的片段，或产物列表为空。
+            </p>
+            <div v-else class="clip-grid">
+              <div v-for="(item, i) in clipItems" :key="item.relative_path || i" class="clip-cell">
+                <p class="clip-label">片段 {{ i + 1 }}</p>
+                <video :src="item.src" controls playsinline preload="metadata"></video>
+                <a class="clip-dl" :href="item.src" :download="item.filename">下载</a>
+              </div>
+            </div>
+          </template>
+          <p v-else class="analysis-clips-placeholder">
+            上传视频并点击「开始分析」，完成后此处展示切分视频。
+          </p>
+        </section>
+      </div>
+
+      <section v-if="result" class="analysis-panel analysis-panel--kinematic-summary">
+        <div class="kinetic-header-row">
+          <span class="kinetic-header-label">2D 运动学摘要</span>
+          <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="btn btn-kinetic-mini"
+            @click="kinematicSummaryOpen = !kinematicSummaryOpen"
+          >
+            {{ kinematicSummaryOpen ? "收起" : "展开" }}
+          </button>
+        </div>
+        <div v-if="kinematicSummaryOpen">
+          <p v-if="kinematicSummaryLoading" class="kinematic-summary-hint">正在加载运动学摘要…</p>
+          <p v-else-if="kinematicSummaryError" class="kinematic-summary-hint">{{ kinematicSummaryError }}</p>
+          <div v-else-if="kinematicSummaryRows.length" class="kinematic-summary-table-wrap">
+            <table class="kinematic-summary-table">
+              <thead>
+                <tr>
+                  <th v-for="column in kinematicSummaryColumns" :key="column.key">{{ column.label }}</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="(row, rowIndex) in kinematicSummaryRows" :key="rowIndex">
+                  <td v-for="column in kinematicSummaryColumns" :key="column.key">
+                    {{ formatCell(row[column.key], column.decimals) }}
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-for="panel in primaryPanels"
+        :key="panel.kind"
+        class="analysis-panel analysis-panel--kinetic"
+      >
+        <div class="kinetic-header-row">
+          <span class="kinetic-header-label">{{ panel.label }}</span>
+          <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="btn btn-kinetic-mini"
+            @click="togglePrimaryPanel(panel.kind)"
+          >
+            {{ panel.open ? "收起" : "展开" }}
+          </button>
+        </div>
+        <div v-if="panel.open" class="kinetic-rows">
+          <div v-for="(item, i) in panel.items" :key="item.relative_path || i" class="kinetic-item">
+            <div class="kinetic-row-bar">
+              <span class="kinetic-fragment-label">{{ panel.itemLabel }} {{ i + 1 }}</span>
+              <a
+                class="clip-dl kinetic-dl kinetic-dl-inline"
+                :href="item.src"
+                :download="item.filename"
+              >下载</a>
+              <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+              <button
+                type="button"
+                class="btn btn-kinetic-mini"
+                @click="togglePrimaryRow(panel.kind, i)"
+              >
+                {{ isPrimaryRowOpen(panel.kind, i) ? "收起大图" : "查看大图" }}
+              </button>
+            </div>
+            <div v-if="isPrimaryRowOpen(panel.kind, i)" class="kinetic-expanded">
+              <img class="kinetic-img" :src="item.src" :alt="item.filename" loading="lazy" />
+              <span class="kinetic-filename">{{ item.filename }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-for="panel in kinematicChartPanels"
+        :key="panel.itemsKey"
+        class="analysis-panel analysis-panel--kinetic"
+      >
+        <div class="kinetic-header-row">
+          <span class="kinetic-header-label">{{ panel.label }}</span>
+          <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+          <button
+            type="button"
+            class="btn btn-kinetic-mini"
+            @click="toggleKinematicPanelBlock(panel.blockKey)"
+          >
+            {{ panel.blockOpen ? "收起" : "展开" }}
+          </button>
+        </div>
+        <div v-if="panel.blockOpen" class="kinetic-rows">
+          <div v-for="(item, i) in panel.items" :key="item.relative_path || i" class="kinetic-item">
+            <div class="kinetic-row-bar">
+              <span class="kinetic-fragment-label">片段 {{ i + 1 }}</span>
+              <a
+                class="clip-dl kinetic-dl kinetic-dl-inline"
+                :href="item.src"
+                :download="item.filename"
+              >下载</a>
+              <span class="kinetic-bar-spacer" aria-hidden="true"></span>
+              <button
+                type="button"
+                class="btn btn-kinetic-mini"
+                @click="toggleKinematicPanelRow(panel.rowKey, i)"
+              >
+                {{ isPanelRowOpen(panel.rowKey, i) ? "收起大图" : "查看大图" }}
+              </button>
+            </div>
+            <div v-if="isPanelRowOpen(panel.rowKey, i)" class="kinetic-expanded">
+              <img class="kinetic-img" :src="item.src" :alt="item.filename" loading="lazy" />
+              <span class="kinetic-filename">{{ item.filename }}</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section
+        v-if="result && (kinematicSummaryCsvItem || kinematicPhaseCsvItem)"
+        class="analysis-panel analysis-panel--kinematic-download"
+      >
+        <h2 class="kinematic-summary-title">运动学数据下载</h2>
+        <div class="kinematic-download-row">
+          <a
+            v-if="kinematicSummaryCsvItem"
+            class="clip-dl"
+            :href="fileUrl(kinematicSummaryCsvItem.relative_path)"
+            :download="kinematicSummaryCsvItem.filename"
+          >下载运动学摘要 CSV</a>
+          <a
+            v-if="kinematicPhaseCsvItem"
+            class="clip-dl"
+            :href="fileUrl(kinematicPhaseCsvItem.relative_path)"
+            :download="kinematicPhaseCsvItem.filename"
+          >下载阶段明细 CSV</a>
+        </div>
+      </section>
+    </div>
+
+    <script src="/assets/app.js"></script>
+    <script>
+      if (typeof Vue === "undefined") {
+        document.getElementById("app").innerHTML =
+          '<p style="padding:24px;color:#f85149">无法加载 Vue（请打开 <a href="/assets/vue.global.prod.js">/assets/vue.global.prod.js</a>）。</p>';
+        throw new Error("Vue not loaded");
+      }
+      const config = analysisConfigFromLocation();
+      document.title = config.title;
+      Vue.createApp(createActionAnalysisApp(config)).mount("#app");
+    </script>
+  </body>
+</html>
