@@ -48,7 +48,9 @@ sig_tennis_new/
 ├── weights/                # 模型权重（需自行准备，见下文）
 ├── data/
 │   ├── inputs/             # 上传视频存放目录
-│   └── outputs/            # 分析产物输出目录
+│   ├── outputs/            # Web 分析产物输出目录
+│   └── manual/             # 无需启动前后端的离线实验输入/输出
+├── standalone/             # 正手/反手/发球/截击四个 PyCharm 直跑脚本
 ├── docs/                   # 补充文档
 └── tests/                  # 单元测试
 ```
@@ -136,6 +138,16 @@ python -m algorithm.volley.angles_csv --video input.mp4 --output-dir result_anal
 `--yolo-model` 覆盖默认推理参数。Python代码也可以直接导入各模块的
 `run_angles_csv(video_path, output_dir, ...)`。
 
+## 不启动 Web 的完整离线分析
+
+`standalone/` 下提供正手、反手、发球、截击四个可在 PyCharm 中直接运行的脚本。
+只需修改脚本顶部的输入视频路径，即可一次生成：人体关键点与二维角度 CSV、球拍五点
+CSV、人体与球拍合并 CSV，以及同时绘制人体骨架和球拍轮廓的 MP4。
+
+输入默认位于 `data/manual/input/`，结果位于
+`data/manual/output/{动作}/{视频名}/`。详细说明见
+[四动作离线实验入口](docs/manual_analysis.md)。
+
 ## API 接口
 
 各动作模块路由前缀一致，以正手为例：
@@ -187,6 +199,7 @@ python -m algorithm.volley.angles_csv --video input.mp4 --output-dir result_anal
 - [正手动力链图说明](docs/forehand_kinetic_chart.md)
 - [项目结构与开发边界](docs/architecture.md)
 - [独立角度 CSV 计算标准](docs/angle_csv.md)
+- [四动作离线实验入口](docs/manual_analysis.md)
 - [fytennis 环境记录](docs/environment.md)
 - 历史研究材料位于 `docs/research/`
 

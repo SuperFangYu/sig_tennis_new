@@ -40,6 +40,7 @@ def run_action_angles_csv(
     config_path: Optional[PathLike] = None,
     checkpoint_path: Optional[PathLike] = None,
     yolo_model_path: Optional[PathLike] = None,
+    csv_filename: Optional[str] = None,
 ) -> Dict[str, Any]:
     """按动作类型导出与 Web 流水线完全相同的人体关键点和角度 CSV。"""
     normalized = str(action).strip().lower()
@@ -60,6 +61,7 @@ def run_action_angles_csv(
         checkpoint_path=checkpoint_path,
         yolo_model_path=yolo_model_path,
         yolo_conf=yolo_conf,
+        csv_filename=csv_filename,
         extra_frame_fn=_backhand_extra if normalized == "backhand" else None,
     )
 

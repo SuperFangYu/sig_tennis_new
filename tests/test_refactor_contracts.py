@@ -1,7 +1,14 @@
 import unittest
+import tempfile
 from pathlib import Path
 
+import cv2
+import numpy as np
+import pandas as pd
+
 from algorithm.common.action_angles import run_action_angles_csv
+from algorithm.common.analysis_overlay import render_pose_racket_video
+from algorithm.common.manual_analysis import normalize_action
 from backend.app import app
 from backend.routers.action_router import classify_artifact
 from backend.services.pipeline import _collect_action_artifacts
@@ -86,6 +93,86 @@ class TestStandaloneAngleEntrypoints(unittest.TestCase):
     def test_unknown_action_fails_before_model_loading(self) -> None:
         with self.assertRaises(ValueError):
             run_action_angles_csv("unknown", "video.mp4", "output")
+
+
+class TestManualAnalysisEntrypoints(unittest.TestCase):
+    def test_four_pycharm_scripts_are_importable_without_loading_models(self) -> None:
+        from standalone import (
+            backhand_analysis,
+            forehand_analysis,
+            serve_analysis,
+            volley_analysis,
+        )
+
+        modules = (forehand_analysis, backhand_analysis, serve_analysis, volley_analysis)
+        self.assertTrue(all(module.INPUT_VIDEO.name.endswith(".mp4") for module in modules))
+        self.assertTrue(all(module.OUTPUT_ROOT.name == "output" for module in modules))
+
+    def test_unknown_manual_action_fails_before_model_loading(self) -> None:
+        with self.assertRaises(ValueError):
+            normalize_action("smash")
+
+    def test_overlay_video_renders_body_and_racket_csv(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            input_video = root / "input.mp4"
+            output_video = root / "overlay.mp4"
+            writer = cv2.VideoWriter(
+                str(input_video),
+                cv2.VideoWriter_fourcc(*"mp4v"),
+                25.0,
+                (160, 120),
+            )
+            self.assertTrue(writer.isOpened())
+            for _ in range(2):
+                writer.write(np.zeros((120, 160, 3), dtype=np.uint8))
+            writer.release()
+
+            body_csv = root / "body.csv"
+            pd.DataFrame(
+                [
+                    {
+                        "frame": frame,
+                        "left_shoulder_x": 40,
+                        "left_shoulder_y": 40,
+                        "left_shoulder_conf": 0.9,
+                        "right_shoulder_x": 80,
+                        "right_shoulder_y": 40,
+                        "right_shoulder_conf": 0.9,
+                    }
+                    for frame in (1, 2)
+                ]
+            ).to_csv(body_csv, index=False)
+
+            racket_csv = root / "racket.csv"
+            racket_rows = []
+            racket_xy = {"t": (120, 30), "l": (108, 45), "r": (132, 45), "b": (120, 60), "h": (120, 88)}
+            for frame in (1, 2):
+                row = {"frame": frame}
+                for name, (x, y) in racket_xy.items():
+                    row[f"{name}_x_clean"] = x
+                    row[f"{name}_y_clean"] = y
+                    row[f"{name}_conf"] = 0.9
+                racket_rows.append(row)
+            pd.DataFrame(racket_rows).to_csv(racket_csv, index=False)
+
+            result = render_pose_racket_video(
+                input_video,
+                body_csv,
+                racket_csv,
+                output_video,
+                action="serve",
+            )
+            self.assertEqual(Path(result), output_video.resolve())
+            self.assertTrue(output_video.exists())
+            self.assertGreater(output_video.stat().st_size, 0)
+
+            cap = cv2.VideoCapture(str(output_video))
+            self.assertEqual(int(cap.get(cv2.CAP_PROP_FRAME_COUNT)), 2)
+            ok, rendered = cap.read()
+            cap.release()
+            self.assertTrue(ok)
+            self.assertGreater(int(rendered.sum()), 0)
 
 
 class TestFrontendContracts(unittest.TestCase):

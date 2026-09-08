@@ -49,9 +49,15 @@ def run_point_track(
     video_path: Union[str, Path],
     output_dir: Union[str, Path],
     model_path: Optional[Union[str, Path]] = None,
+    *,
+    save_chart: bool = True,
+    csv_filename: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
-    追踪球拍五点并输出扩展 CSV 与轨迹图（含旧字段兼容别名）。
+    追踪球拍五点并输出扩展 CSV；Web 默认同时生成轨迹图。
+
+    ``save_chart=False`` 供离线实验入口使用，避免生成不需要的 PNG。
+    ``csv_filename`` 仅覆盖输出文件名，不改变 CSV 字段或计算标准。
 
     Returns:
         dict with keys: csv, chart, fps, video_name
@@ -144,13 +150,15 @@ def run_point_track(
     add_legacy_aliases(df)
     compute_racket_derived_features(df, fps)
 
-    csv_save_path = str(output_dir / f"{video_name}_kpt_t_backend.csv")
+    csv_save_path = str(output_dir / (csv_filename or f"{video_name}_kpt_t_backend.csv"))
     df.to_csv(csv_save_path, index=False)
     print(f"💾 球拍五点 CSV 已保存: {csv_save_path}")
 
-    chart_save_path = str(output_dir / f"{video_name}_kpt_t_plot.png")
-    _save_trajectory_chart(df, video_name, chart_save_path)
-    print(f"📈 轨迹图已保存: {chart_save_path}")
+    chart_save_path: Optional[str] = None
+    if save_chart:
+        chart_save_path = str(output_dir / f"{video_name}_kpt_t_plot.png")
+        _save_trajectory_chart(df, video_name, chart_save_path)
+        print(f"📈 轨迹图已保存: {chart_save_path}")
 
     return {
         "csv": csv_save_path,

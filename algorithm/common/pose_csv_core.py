@@ -34,11 +34,13 @@ def run_pose_csv(
     yolo_model_path: Optional[Union[str, Path]] = None,
     extra_frame_fn: Optional[ExtraFrameFn] = None,
     yolo_conf: float = 0.25,
+    csv_filename: Optional[str] = None,
 ) -> Dict[str, Any]:
     """
     逐帧提取人体 2D kinematic features 并写入 CSV。
 
-    csv_suffix: 输出文件名 {video}_body_{csv_suffix}.csv
+    csv_suffix: 默认输出文件名 {video}_body_{csv_suffix}.csv
+    csv_filename: 可选的自定义输出文件名，供离线实验入口组织产物
     extra_frame_fn: 在基础特征上追加动作特有列（如 shoulder_turn_x_diff）
     """
     video_path = Path(video_path)
@@ -123,7 +125,7 @@ def run_pose_csv(
     df[interp_cols] = df[interp_cols].interpolate(method="linear", limit_direction="both")
     df[interp_cols] = df[interp_cols].bfill().ffill()
 
-    csv_save_path = output_dir / f"{video_name}_body_{csv_suffix}.csv"
+    csv_save_path = output_dir / (csv_filename or f"{video_name}_body_{csv_suffix}.csv")
     df.to_csv(str(csv_save_path), index=False, encoding="utf-8-sig")
     print(f"✅ 身体 CSV 已保存: {csv_save_path}")
 
