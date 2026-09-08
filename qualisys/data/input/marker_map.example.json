@@ -1,0 +1,14 @@
+{
+  "left_shoulder": ["L.shoulder"],
+  "right_shoulder": ["R.shoulder"],
+  "left_elbow": ["L.elbow.lat", "L.elbow.med"],
+  "right_elbow": ["R.elbow.lat", "R.elbow.med"],
+  "left_wrist": ["L.wrist.lat", "L.wrist.med"],
+  "right_wrist": ["R.wrist.lat", "R.wrist.med"],
+  "left_hip": ["L.ASIS", "L.PSIS"],
+  "right_hip": ["R.ASIS", "R.PSIS"],
+  "left_knee": ["L.knee.lat", "L.knee.med"],
+  "right_knee": ["R.knee.lat", "R.knee.med"],
+  "left_ankle": ["L.ankle.lat", "L.ankle.med"],
+  "right_ankle": ["R.ankle.lat", "R.ankle.med"]
+}

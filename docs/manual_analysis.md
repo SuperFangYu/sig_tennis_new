@@ -61,3 +61,7 @@ data/manual/output/serve/serve_01/
 - 膝角：髋—膝—踝
 
 这些角度可以与 Qualisys 选定的 ZY 平面投影角比较，但需要后续完成时间对齐、左右侧和角度定义核对。
+
+正式成对验证请不要直接把本目录任意视频与 Qualisys TSV 拼接。应把同次采集文件登记到
+`qualisys/data/input/manifest.csv`，再按 [`qualisys/README.md`](../qualisys/README.md) 的
+独立三阶段流程处理；该流程不需要球拍叠加视频，也不读取测力台数据。

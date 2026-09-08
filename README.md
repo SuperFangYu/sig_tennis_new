@@ -22,39 +22,115 @@
 
 ## 项目结构
 
-```
+```text
 sig_tennis_new/
-├── main.py                 # 项目入口，启动服务并打开浏览器
-├── requirements.txt        # Python 依赖
-├── backend/                # FastAPI 后端
-│   ├── app.py              # 应用配置与路由挂载
-│   ├── routers/            # 各动作类型 API（forehand / backhand / serve / volley）
-│   ├── services/           # 分析流水线编排
-│   └── schemas.py          # 请求 / 响应模型
-├── algorithm/              # 算法模块（按动作类型分目录）
-│   ├── common/             # 公共追踪、姿态、运动学与切分工具
-│   ├── forehand/           # 正手（angles_csv.py 可独立导出角度 CSV）
-│   ├── backhand/           # 反手（angles_csv.py 可独立导出角度 CSV）
-│   ├── serve/              # 发球（angles_csv.py 可独立导出角度 CSV）
-│   └── volley/             # 截击（angles_csv.py 可独立导出角度 CSV）
-├── Vue/                    # 前端静态资源
-│   ├── index.html          # 首页
-│   ├── analysis.html       # 四类动作共用的配置驱动分析页
-│   ├── forehand.html       # 旧地址兼容跳转
-│   ├── backhand.html       # 旧地址兼容跳转
-│   ├── serve.html          # 旧地址兼容跳转
-│   └── volley.html         # 旧地址兼容跳转
-├── configs/                # RTMPose 模型配置
-├── weights/                # 模型权重（需自行准备，见下文）
-├── data/
-│   ├── inputs/             # 上传视频存放目录
-│   ├── outputs/            # Web 分析产物输出目录
-│   └── manual/             # 无需启动前后端的离线实验输入/输出
-├── standalone/             # 正手/反手/发球/截击四个 PyCharm 直跑脚本
-├── qualisys/               # Qualisys 数据与后续处理代码（独立于视觉算法）
-├── docs/                   # 补充文档
-└── tests/                  # 单元测试
+├── main.py                         # 启动 FastAPI 服务并按配置打开浏览器。
+├── requirements.txt                # 列出项目 Python 直接依赖。
+├── backend/                        # Web 后端与分析任务编排。
+├── algorithm/                      # 人体、球拍、切分和运动学算法。
+├── standalone/                     # 不启动 Web 的四动作本地视频分析入口。
+├── qualisys/                       # RTMPose–Qualisys 成对验证流水线，不使用测力台。
+├── Vue/                            # 由 FastAPI 托管的 Vue 静态前端。
+├── configs/                        # RTMPose 模型配置。
+├── weights/                        # 本地模型权重，不提交 Git。
+├── data/                           # Web 与手动分析的本地输入输出。
+├── docs/                           # 计算标准、架构、环境和实验说明。
+└── tests/                          # 不依赖真实视频的自动化测试。
 ```
+
+### 后端文件
+
+| 文件 | 一句话说明 |
+|---|---|
+| `backend/app.py` | 创建 FastAPI 应用、挂载四动作路由并托管前端静态文件。 |
+| `backend/schemas.py` | 定义分析响应和产物信息的数据模型。 |
+| `backend/routers/action_router.py` | 统一实现上传、分析、历史产物查询和安全下载。 |
+| `backend/routers/forehand.py` | 注册正手 API。 |
+| `backend/routers/backhand.py` | 注册反手 API。 |
+| `backend/routers/serve.py` | 注册发球 API。 |
+| `backend/routers/volley.py` | 注册截击 API。 |
+| `backend/services/pipeline.py` | 按动作编排球拍追踪、姿态估计、融合、切分和作图。 |
+| `backend/**/__init__.py` | 声明 Python 包，不承载业务逻辑。 |
+
+### 公共算法文件
+
+| 文件 | 一句话说明 |
+|---|---|
+| `algorithm/common/action_angles.py` | 给四种动作提供统一 RTMPose CSV 调用接口。 |
+| `algorithm/common/pose_csv_core.py` | 逐帧检测人体、估计 Halpe26 并导出运动学特征。 |
+| `algorithm/common/pose_features.py` | 定义 Halpe26 点位、骨架连接和二维关节角公式。 |
+| `algorithm/common/point_track_core.py` | 运行 YOLO 球拍五点追踪并保存轨迹数据。 |
+| `algorithm/common/racket_features.py` | 计算球拍中心、拍轴、速度等派生特征。 |
+| `algorithm/common/kinematic_fusion.py` | 按帧融合人体与球拍运动学数据。 |
+| `algorithm/common/segmentation_helpers.py` | 提供动作切分、平滑、评分和统计的共享工具。 |
+| `algorithm/common/kinematic_plots.py` | 绘制共用动力链和角度分析图。 |
+| `algorithm/common/analysis_overlay.py` | 把简化 Halpe26 骨架与稳定后的球拍五点画回视频。 |
+| `algorithm/common/manual_analysis.py` | 编排手动视频的八角 CSV 与人体/球拍叠加视频。 |
+| `algorithm/common/thresholds.py` | 集中保存人体关键点置信度等阈值。 |
+| `algorithm/common/inference/detector.py` | 封装 Ultralytics 人体检测器。 |
+| `algorithm/common/inference/pose_estimator.py` | 封装 MMPose RTMPose Halpe26 推理器。 |
+| `algorithm/**/__init__.py` | 声明算法 Python 包。 |
+
+### 四动作算法文件
+
+每个 `algorithm/{forehand,backhand,serve,volley}/angles_csv.py` 都是对应动作的人体角度入口，
+每个 `point_track.py` 都是对应动作的球拍追踪兼容入口，每个 `segmentation.py` 都保存对应动作
+的切分规则；`forehand/plot_kinetic_chain.py` 与 `backhand/plot_kinetic_chain.py` 分别生成正手和
+反手专项动力链图。四个 `standalone/*_analysis.py` 则是在 PyCharm 中修改顶部视频路径后直接
+运行的完整离线入口。
+
+### Qualisys 验证文件
+
+| 文件 | 一句话说明 |
+|---|---|
+| `qualisys/config.py` | 定义验证目录、8 角列和默认 Qualisys marker 映射。 |
+| `qualisys/trials.py` | 读取清单并保证一个试次只配对同次采集的视频和 3D TSV。 |
+| `qualisys/run_rtmpose.py` | 独立生成视频的 RTMPose 8 角 CSV。 |
+| `qualisys/run_qualisys.py` | 把 Qualisys 3D marker 投影到 ZY 并生成同定义 8 角 CSV。 |
+| `qualisys/compare_angles.py` | 用逐动作人工事件拟合时间映射并生成初步误差指标。 |
+| `qualisys/run_validation.py` | 按需串联 RTMPose、Qualisys 和 compare 三个阶段。 |
+| `qualisys/data/input/manifest.example.csv` | 展示成对试次清单格式。 |
+| `qualisys/data/input/marker_map.example.json` | 展示可覆盖的 marker–关节映射格式。 |
+
+### 前端、配置与测试文件
+
+| 文件 | 一句话说明 |
+|---|---|
+| `Vue/index.html` | 提供动作类型选择首页。 |
+| `Vue/analysis.html` | 提供四动作共用的上传、分析和结果页面。 |
+| `Vue/forehand.html`、`backhand.html`、`serve.html`、`volley.html` | 保留旧动作地址并跳转到共用分析页。 |
+| `Vue/assets/app.js` | 保存前端动作配置、API 请求和结果渲染逻辑。 |
+| `Vue/assets/app.css` | 保存全站样式。 |
+| `Vue/assets/vue.global.prod.js` | 提供本地 Vue 3 运行时。 |
+| `configs/rtmpose_m_halpe26.py` | 配置 RTMPose-M Halpe26 网络与数据集元信息。 |
+| `tests/test_refactor_contracts.py` | 检查统一入口、8 角 CSV、叠加骨架和球拍稳定契约。 |
+| `tests/test_forehand_kinetic_chart.py` | 检查正手动力链图输出。 |
+| `tests/test_kinematic_summary.py` | 检查分段运动学汇总统计。 |
+| `tests/test_relaxed_segmentation.py` | 检查宽松动作切分对短序列与缺失数据的行为。 |
+| `tests/test_qualisys_framework.py` | 检查试次清单、ZY 八角计算和人工事件对齐。 |
+
+### 文档与数据目录
+
+| 文件或目录 | 一句话说明 |
+|---|---|
+| `docs/architecture.md` | 说明单仓库依赖方向、稳定接口与各流水线边界。 |
+| `docs/angle_csv.md` | 说明 RTMPose 关节角、字段及插值行为。 |
+| `docs/manual_analysis.md` | 说明四动作 PyCharm 离线入口的参数、产物与可视化。 |
+| `docs/qualisys_validation.md` | 说明成对输入、ZY 角度、逐动作对齐、指标和实验局限。 |
+| `docs/forehand_kinetic_chart.md` | 说明正手动力链图各阶段和曲线含义。 |
+| `docs/environment.md` | 记录 5090 上 `fytennis` 环境和关键依赖版本。 |
+| `docs/research/` | 保存早期特征研究材料，不作为当前运行入口。 |
+| `data/inputs/` | 保存 Web 上传视频。 |
+| `data/outputs/` | 保存按运行时间与视频名组织的 Web 分析产物。 |
+| `data/manual/input/` | 保存四动作手动分析视频。 |
+| `data/manual/output/` | 保存手动分析的 8 角 CSV 与叠加视频。 |
+| `qualisys/data/input/` | 保存真实成对视频、3D TSV、清单和可选点位映射。 |
+| `qualisys/data/intermediate/` | 保存两套独立角度与人工事件表。 |
+| `qualisys/data/output/` | 保存对齐明细、指标、事件误差和质控表。 |
+| `.gitignore` | 排除权重、视频、实验数据、运行结果和本机配置。 |
+| `AGENTS.md` | 规定团队沟通、Git 分支和 5090 验证流程。 |
+
+更细的依赖方向和不得破坏的稳定接口见[项目结构与开发边界](docs/architecture.md)。
 
 ## 环境要求
 
@@ -202,6 +278,8 @@ python -m algorithm.volley.angles_csv --video input.mp4 --output-dir result_anal
 - [项目结构与开发边界](docs/architecture.md)
 - [独立角度 CSV 计算标准](docs/angle_csv.md)
 - [四动作离线实验入口](docs/manual_analysis.md)
+- [RTMPose–Qualisys 信效度验证方案](docs/qualisys_validation.md)
+- [Qualisys 验证模块操作说明](qualisys/README.md)
 - [fytennis 环境记录](docs/environment.md)
 - 历史研究材料位于 `docs/research/`
 

@@ -7,6 +7,10 @@
 ```text
 Vue -> FastAPI routers -> pipeline -> action algorithms -> common algorithms
                                       -> data/outputs
+
+standalone scripts -> common manual pipeline -> data/manual
+
+paired video + Qualisys 3D TSV -> qualisys validation -> qualisys/data/output
 ```
 
 - `Vue/analysis.html` 是四类动作共用的分析页面，动作差异集中在
@@ -15,6 +19,8 @@ Vue -> FastAPI routers -> pipeline -> action algorithms -> common algorithms
 - `backend/services/pipeline.py` 统一四类动作的追踪、角度导出、融合和切分顺序。
 - `algorithm/common/` 只保存动作无关的通用算法。
 - `algorithm/{action}/` 保存动作入口和动作特有的切分规则。
+- `standalone/` 调用公共算法生成 8 角 CSV 和人体/球拍叠加视频，不经过 Web。
+- `qualisys/` 是独立实验验证层，只复用 RTMPose 角度定义，不接入后端 API，也不读取测力台。
 
 ## 稳定接口
 
@@ -28,17 +34,15 @@ Vue -> FastAPI routers -> pipeline -> action algorithms -> common algorithms
 - API artifact 的 `kind`、`filename`、`relative_path`
 - 四个 `algorithm/{action}/angles_csv.py` 的 `run_angles_csv` 函数
 
-## 后续视频可视化边界
+## 离线视频可视化边界
 
-人体与球拍关键点共同画回视频时，不应修改 `angles_csv.py`。建议新增：
+`algorithm/common/analysis_overlay.py` 负责把内存中的 Halpe26 人体点和临时球拍五点共同
+画回视频；`algorithm/common/manual_analysis.py` 负责三阶段编排。可视化稳定规则只作用于
+叠加视频，不改写 Web 球拍数据。正式离线输出只保留 8 角 CSV 和叠加视频。
 
-```text
-algorithm/common/visualization/
-├── skeleton_style.py
-├── body_overlay.py
-├── racket_overlay.py
-└── combined_video.py
-```
+## 实验验证边界
 
-人体骨架与球拍五点应使用独立的颜色、线宽和连线拓扑；可视化读取已有CSV，避免再次
-运行模型，也避免影响现有Web分析结果。
+`qualisys/` 中每个试次必须是真正对应的一个视频和一个 3D marker TSV。RTMPose 与 Qualisys
+先独立生成相同列定义的 CSV，再由人工事件表建立逐动作时间映射。测力台文件、肩髋分离角、
+Web 产物和球拍可视化都不进入当前 8 角效度比较。详细约束见
+[`qualisys_validation.md`](qualisys_validation.md)。
