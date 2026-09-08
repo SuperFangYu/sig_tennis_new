@@ -35,8 +35,8 @@
 
 - Web 与 `algorithm/{action}/angles_csv.py` 默认保留关键点坐标、置信度和更多派生字段。
 - `standalone/*_analysis.py` 的正式 CSV 只保留 `frame`、`time` 与左右肩/肘/髋/膝 8 角。
-- `qualisys/run_rtmpose.py` 同样只保留这 8 角，并把首帧时间归零以便实验对齐。
-- `qualisys/run_qualisys.py` 将 3D marker 投影到 ZY 后用相同定义计算 8 角，不计算肩髋分离角。
+- Qualisys 验证直接读取已经生成的 RTMPose 8 角 CSV，不会再次运行人体姿态模型。
+- `qualisys/core/qtm.py` 将 3D marker 投影到 ZY 后用相同定义计算 8 角，不计算肩髋分离角。
 
 由于现有 RTMPose 核心会对缺失角做插值，正式效度研究还需要增加原始有效帧率和插值比例
 输出；现阶段结果应作为流程试跑和探索性统计，不应省略这一局限。

@@ -1,9 +1,8 @@
-# Qualisys 本地实验数据
+# Qualisys 本地验证数据
 
-- `input/video/`：按 `英文名_英文动作_编号` 命名的同次采集视频。
-- `input/qtm/`：与视频同名的 Qualisys 3D TSV，不放测力台文件。
-- `intermediate/`：两套独立 8 角 CSV 与人工事件时间表。
-- `output/`：对齐明细、角度指标、事件误差和对齐质控表。
+- `input/video/`：同次采集的原始侧面视频。
+- `input/rtmpose/`：已经由独立 RTMPose 脚本生成的 8 角 CSV。
+- `input/qtm/`：Qualisys 3D marker TSV；不使用测力台文件。
+- `output/`：程序按动作、样本和运行时间逐次新建的验证结果。
 
-这三个目录中的真实视频、TSV、CSV 和结果均被 `.gitignore` 排除；仅目录说明与示例配置
-进入版本库。测力台文件不属于本模块输入。
+真实视频、TSV、CSV 和运行结果均被 `.gitignore` 排除，不会提交到 Git。

@@ -12,13 +12,14 @@ data/manual/output/*
 qualisys/data/input/*
 !qualisys/data/input/README.md
 !qualisys/data/input/video/
+!qualisys/data/input/rtmpose/
 !qualisys/data/input/qtm/
 qualisys/data/input/video/*
 !qualisys/data/input/video/README.md
+qualisys/data/input/rtmpose/*
+!qualisys/data/input/rtmpose/README.md
 qualisys/data/input/qtm/*
 !qualisys/data/input/qtm/README.md
-qualisys/data/intermediate/*
-!qualisys/data/intermediate/README.md
 qualisys/data/output/*
 !qualisys/data/output/README.md
 

@@ -117,7 +117,8 @@ class TestManualAnalysisEntrypoints(unittest.TestCase):
             backhand_volley_analysis,
             serve_analysis,
         )
-        self.assertTrue(all(module.INPUT_VIDEO.name.endswith(".mp4") for module in modules))
+        supported_video_suffixes = {".mp4", ".avi", ".mov", ".mkv", ".m4v"}
+        self.assertTrue(all(module.INPUT_VIDEO.suffix.lower() in supported_video_suffixes for module in modules))
         self.assertTrue(all(module.OUTPUT_ROOT.name == "output" for module in modules))
 
     def test_manual_volley_actions_are_split(self) -> None:

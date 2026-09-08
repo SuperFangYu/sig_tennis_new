@@ -91,12 +91,16 @@ sig_tennis_new/
 
 | 文件 | 一句话说明 |
 |---|---|
-| `qualisys/config.py` | 定义验证目录、8 角列和默认 Qualisys marker 映射。 |
-| `qualisys/trials.py` | 按 `英文名_英文动作_编号` 自动配对 video/qtm 中的同名文件。 |
-| `qualisys/run_rtmpose.py` | 独立生成视频的 RTMPose 8 角 CSV。 |
-| `qualisys/run_qualisys.py` | 把 Qualisys 3D marker 投影到 ZY 并生成同定义 8 角 CSV。 |
-| `qualisys/compare_angles.py` | 用逐动作人工事件拟合时间映射并生成初步误差指标。 |
-| `qualisys/run_validation.py` | 按需串联 RTMPose、Qualisys 和 compare 三个阶段。 |
+| `qualisys/actions/forehand_validation.py` | 手填三条输入路径后运行正手五次动作验证。 |
+| `qualisys/actions/backhand_validation.py` | 手填三条输入路径后运行反手五次动作验证。 |
+| `qualisys/actions/forehand_volley_validation.py` | 手填三条输入路径后运行正手截击五次动作验证。 |
+| `qualisys/actions/backhand_volley_validation.py` | 手填三条输入路径后运行反手截击五次动作验证。 |
+| `qualisys/actions/serve_validation.py` | 手填三条输入路径后运行发球五次动作验证。 |
+| `qualisys/config.py` | 定义固定输入/输出目录、8 角列和 Qualisys marker 映射。 |
+| `qualisys/core/qtm.py` | 把 3D marker 投影到 ZY，生成八角与 QTM 拍头速度。 |
+| `qualisys/core/alignment.py` | 用视频/QTM 拍头速度峰自动识别并匹配五次动作。 |
+| `qualisys/core/metrics.py` | 对齐两套八角并计算 MAE、RMSE、bias、LoA、相关与 CCC。 |
+| `qualisys/core/runner.py` | 编排单个动作验证并为每次运行建立独立输出目录。 |
 
 ### 前端、配置与测试文件
 
@@ -113,7 +117,7 @@ sig_tennis_new/
 | `tests/test_forehand_kinetic_chart.py` | 检查正手动力链图输出。 |
 | `tests/test_kinematic_summary.py` | 检查分段运动学汇总统计。 |
 | `tests/test_relaxed_segmentation.py` | 检查宽松动作切分对短序列与缺失数据的行为。 |
-| `tests/test_qualisys_framework.py` | 检查试次清单、ZY 八角计算和人工事件对齐。 |
+| `tests/test_qualisys_framework.py` | 检查 ZY 八角、五峰自动对齐、统一时间映射和新建输出目录。 |
 
 ### 文档与数据目录
 
@@ -130,10 +134,10 @@ sig_tennis_new/
 | `data/outputs/` | 保存按运行时间与视频名组织的 Web 分析产物。 |
 | `data/manual/input/` | 保存五动作手动分析视频。 |
 | `data/manual/output/` | 保存手动分析的 8 角 CSV 与叠加视频。 |
-| `qualisys/data/input/video/` | 保存按 `英文名_英文动作_编号` 命名的验证视频。 |
-| `qualisys/data/input/qtm/` | 保存与视频同名的 Qualisys 3D TSV。 |
-| `qualisys/data/intermediate/` | 保存两套独立角度与人工事件表。 |
-| `qualisys/data/output/` | 保存对齐明细、指标、事件误差和质控表。 |
+| `qualisys/data/input/video/` | 保存与 QTM 同次采集的验证视频。 |
+| `qualisys/data/input/rtmpose/` | 保存已单独运行完成的 RTMPose 8 角 CSV。 |
+| `qualisys/data/input/qtm/` | 保存 Qualisys 3D marker TSV，不放测力台文件。 |
+| `qualisys/data/output/` | 按动作/样本/运行时间逐次新建对齐、指标与质控结果。 |
 | `.gitignore` | 排除权重、视频、实验数据、运行结果和本机配置。 |
 | `AGENTS.md` | 规定团队沟通、Git 分支和 5090 验证流程。 |
 

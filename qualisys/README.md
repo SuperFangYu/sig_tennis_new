@@ -1,159 +1,142 @@
-# RTMPose–Qualisys 八角验证：使用说明
+# Qualisys–RTMPose 五动作角度验证
 
-本目录比较同一次采集的侧面视频与 Qualisys 3D marker 数据，只计算左右肩、肘、髋、膝
-8 个无符号二维角度，不使用测力台，也不需要 `manifest.csv`。
+## 这一版做什么
 
-## 你实际需要认识的文件
+本模块只负责验证，不重新生成 RTMPose 人体角度，也不读取测力台。你为一个动作提供：
 
-| 文件 | 用途 |
-|---|---|
-| `run_validation.py` | 你在 PyCharm 中直接运行的总入口，只需修改顶部 3 个参数。 |
-| `trials.py` | 自动扫描并配对 `video/` 与 `qtm/` 中的同名文件。 |
-| `run_rtmpose.py` | 阶段 1A：从视频生成 RTMPose 8 角 CSV。 |
-| `run_qualisys.py` | 阶段 1B：从 3D TSV 的 ZY 平面生成 Qualisys 8 角 CSV。 |
-| `compare_angles.py` | 阶段 2/3：生成事件表，并按事件对齐后计算误差。 |
-| `config.py` | 保存五动作名称、事件定义、8 个角度列及 Qualisys 点位映射。 |
+1. 与 QTM 同次采集的原始侧面视频；
+2. 已经运行好的 RTMPose 8 角 CSV；
+3. Qualisys 导出的 3D marker TSV。
 
-通常只运行 `run_validation.py`，其他文件不用单独打开。
+程序用视频 YOLO 拍头速度和 QTM `Racket_top` 的 ZY 平面速度自动寻找五次动作，用五个
+速度峰拟合统一时间关系，再比较左右肩、肘、髋、膝 8 个角度。没有球、看不到触球都可以；
+这里的自动锚点是“动作中拍头速度峰”，不是触球帧。
 
-## 第一步：给输入文件命名
-
-视频和 TSV 主文件名必须完全相同，格式是：
+## 目录结构
 
 ```text
-英文名_英文动作_编号
+qualisys/
+├── actions/
+│   ├── forehand_validation.py          # 正手手动入口
+│   ├── backhand_validation.py          # 反手手动入口
+│   ├── forehand_volley_validation.py   # 正手截击手动入口
+│   ├── backhand_volley_validation.py   # 反手截击手动入口
+│   └── serve_validation.py             # 发球手动入口
+├── core/
+│   ├── action_profiles.py              # 五动作的峰值与窗口参数
+│   ├── qtm.py                          # QTM TSV、ZY 八角、Racket_top 速度
+│   ├── alignment.py                    # 自动识别五次动作并拟合时间映射
+│   ├── metrics.py                      # 插值与一致性指标
+│   ├── plotting.py                     # 对齐质控图
+│   ├── io.py                           # 输入检查与新建输出目录
+│   └── runner.py                       # 单次任务编排
+└── data/
+    ├── input/video/
+    ├── input/rtmpose/
+    ├── input/qtm/
+    └── output/
 ```
 
-你的动作缩写已经支持：
+五个动作只有时间节奏参数不同，八角公式和统计核心只有一份，因此后续修改不会出现五份代码
+计算标准不一致。Web 仍然只展示正手、反手、发球、截击四类，不受这里的五动作入口影响。
 
-| 缩写 | 动作 | 示例配对 |
-|---|---|---|
-| `zs` | 正手 | `video/fy_zs_1.avi` ↔ `qtm/fy_zs_1.tsv` |
-| `fs` | 反手 | `video/fy_fs_1.avi` ↔ `qtm/fy_fs_1.tsv` |
-| `jjzs` | 正手截击 | `video/fy_jjzs_1.avi` ↔ `qtm/fy_jjzs_1.tsv` |
-| `jjfs` | 反手截击 | `video/fy_jjfs_1.avi` ↔ `qtm/fy_jjfs_1.tsv` |
-| `fq` | 发球 | `video/fy_fq_1.avi` ↔ `qtm/fy_fq_1.tsv` |
+## 运行前准备
 
-也支持完整英文动作名，例如 `tom_forehand_1`、`tom_backhand_volley_2`。末尾编号必须是
-1、2、3……这样的正整数。
-
-文件放置位置：
+建议把文件按下面方式放置，但程序并不依赖同名扫描：
 
 ```text
-qualisys/data/input/
-├── video/                 # 只放视频
-│   ├── fy_zs_1.avi
-│   └── fy_fq_1.avi
-└── qtm/                   # 只放 3D TSV，不放测力台文件
-    ├── fy_zs_1.tsv
-    └── fy_fq_1.tsv
+qualisys/data/input/video/fy_zs_1.avi
+qualisys/data/input/rtmpose/fy_zs_1.csv
+qualisys/data/input/qtm/fy_zs_1.tsv
 ```
 
-左手球员不需要额外设置：本实验输出左右两侧全部 8 角，水平翻转侧面机位不会改变三点夹角
-大小。比较时仍然保持 RTMPose 左角对 Qualisys 左角、右角对右角。
+RTMPose CSV 必须只需具备这些字段（多余字段会被忽略）：
 
-## 第二步：在 PyCharm 运行角度提取
+```text
+frame,time,
+left_shoulder_angle,right_shoulder_angle,
+left_elbow_angle,right_elbow_angle,
+left_hip_angle,right_hip_angle,
+left_knee_angle,right_knee_angle
+```
 
-打开 `qualisys/run_validation.py`，在顶部找到：
+QTM TSV 必须是 `DATA_INCLUDED=3D` 的 marker 导出，并至少包含当前人体 marker 映射以及
+`Racket_top X/Y/Z`。不用放 `_a_1.tsv`、`_a_2.tsv` 等测力台文件。球拍 YOLO 权重默认读取
+项目根目录 `weights/bestnew.pt`。
+
+## 在 PyCharm 中怎么用
+
+以正手为例，打开 `qualisys/actions/forehand_validation.py`，只修改顶部三条路径：
 
 ```python
-RUN_MODE = "extract"
-TRIAL_ID = ""  # 留空处理全部配对；也可填写 "fy_zs_1"
-DEVICE = "cuda:0"
+VIDEO_PATH = REPO_ROOT / "qualisys/data/input/video/fy_zs_1.avi"
+RTMPOSE_CSV_PATH = REPO_ROOT / "qualisys/data/input/rtmpose/fy_zs_1.csv"
+QUALISYS_TSV_PATH = REPO_ROOT / "qualisys/data/input/qtm/fy_zs_1.tsv"
 ```
 
-设置 `RUN_MODE = "extract"` 后右键运行。每个配对会生成：
-
-```text
-qualisys/data/intermediate/fy_zs_1/
-├── rtmpose_8_angles.csv
-└── qualisys_8_angles.csv
-```
-
-这一步不做时间对齐，只分别计算两套角度。
-
-## 第三步：生成并填写动作时间表
-
-把 `RUN_MODE` 改成：
+保持：
 
 ```python
-RUN_MODE = "prepare_events"
+EXPECTED_REPETITIONS = 5
 ```
 
-再次运行，程序会在每个试次的 `intermediate` 目录生成：
+然后右键运行该文件即可。反手、正手截击、反手截击、发球分别打开对应的另外四个入口，
+操作完全一样。路径可以写成 `Path(r"D:\...")` 绝对路径；三个文件不要求同名，但必须来自
+同一次采集、动作出现顺序一致。
 
-- `video_events.csv`：填写视频中的事件秒数。
-- `qualisys_events.csv`：填写 QTM 中相同事件的相对秒数。
+你不需要填写五次动作的起止时间。程序会：
 
-每张表都有四列：
+1. 从视频提取拍头速度；
+2. 从 QTM `Racket_top` 的 Z/Y 坐标计算拍头速度；
+3. 两边各找候选速度峰，并从中匹配五个顺序一致的动作锚点；
+4. 拟合一次 `t_qualisys = slope × t_video + intercept`；
+5. 以视频速度峰周围的速度回落点自动划分五个动作窗口；
+6. 把 Qualisys 八角插值到视频帧时刻并输出指标。
 
-| 列 | 怎么填 |
-|---|---|
-| `repetition` | 文件中第几次完整动作，从 1 开始。 |
-| `event` | 固定为 `start`、`contact`、`end`，不要修改。 |
-| `time` | 你需要填写的秒数。 |
-| `definition` | 程序根据动作写入的判断标准，不要修改。 |
+## 输出在哪里
 
-如果一个文件里有 5 次击球，就保留 15 行：每个 `repetition` 都要有三行事件。两张表的
-`repetition=1` 必须是同一次击球，不能只按出现顺序猜测。
-
-视频时间以第一帧为 0 秒。Qualisys 时间使用 `qualisys_8_angles.csv` 的 `time` 列，该列已经
-自动执行“原始 QTM Time − 第一行 Time”。
-
-## 五种动作的时间划分
-
-角度公式不需要分五套，五种动作始终使用相同 8 个三点夹角。需要分别处理的是动作标签和
-`start/contact/end` 的物理定义。相似动作共用规则，因此实际是三组：
-
-| 动作组 | `start` | `contact` | `end` |
-|---|---|---|---|
-| 正手 `zs`、反手 `fs` | 后摆结束，持拍手或拍头开始持续向击球方向加速 | 球拍触球；看不清时取拍头最接近来球的位置 | 随挥结束后，持拍手或拍头速度第一次明显降到低谷 |
-| 正手截击 `jjzs`、反手截击 `jjfs` | 准备姿势后，球拍开始持续向来球方向移动 | 球拍触球；看不清时取拍面最接近来球的位置 | 短促挡击结束后，球拍速度第一次明显降到低谷 |
-| 发球 `fq` | 持拍手或拍头离开稳定准备位置，发球动作正式启动 | 球拍触球；看不清时取拍头进入最高击球区域的时刻 | 落地随挥完成后，持拍手或拍头速度第一次明显降到低谷 |
-
-正手和反手可以用同一判断逻辑，正手截击和反手截击也可以用同一逻辑；但五种动作仍分别
-保存和统计，不能把正手截击与普通正手合并。
-
-## 第四步：运行对齐和指标计算
-
-两张事件表填写完成后，把顶部参数改为：
-
-```python
-RUN_MODE = "compare"
-```
-
-再次运行，结果保存在：
+不需要也不能手填 `OUTPUT_DIR`。每次运行自动在固定根目录下建立新文件夹：
 
 ```text
-qualisys/data/output/fy_zs_1/
-├── aligned_angles.csv     # 视频每帧对应的两套角度和逐帧误差
-├── angle_metrics.csv      # MAE、RMSE、bias、LoA、相关、CCC 等
-├── event_metrics.csv      # start/contact/end 三个事件处的角度误差
-└── alignment_qc.csv       # 时间映射斜率、截距、锚点残差和有效帧数
+D:\FY\sig_tennis_new\qualisys\data\output\
+└── forehand/
+    └── fy_zs_1/
+        ├── 20260908_153012_123/
+        └── 20260908_154455_807/
 ```
 
-程序对每次动作拟合 `t_qualisys = a × t_video + b`，Qualisys 100 Hz 曲线被插值到视频帧
-时刻。同一次动作的 8 个角共用一个映射，不能逐关节移动曲线来人为降低误差。
+即使同一个文件反复运行，也不会覆盖上一次结果。优先看：
 
-## 可选命令行方式
+- `alignment_qc.png`：红色叉号应在两边各显示五个正确动作峰；
+- `alignment_qc.csv`：`status=pass`、时间斜率、锚点 RMSE、球拍有效率；
+- `repetition_windows.csv`：五次动作的自动起止时间是否合理；
+- `angle_metrics.csv`：最终每次动作和 `all` 的角度误差与一致性结果。
 
-不使用 PyCharm 时，也可以运行：
+完整文件含义见 `data/output/README.md`。
 
-```powershell
-python -m qualisys.run_validation --mode extract --trial fy_zs_1
-python -m qualisys.run_validation --mode prepare_events --trial fy_zs_1
-python -m qualisys.run_validation --mode compare --trial fy_zs_1
-```
+## 自动对齐失败怎么办
 
-不传 `--trial` 会处理全部同名配对。
+程序不会为了凑够五次动作而输出看似漂亮的结果。以下情况会停止，并在本次新目录的
+`run_status.json` 写明失败原因：
 
-## 当前计算注意事项
+- 视频拍头原始有效率低于 20%；
+- QTM `Racket_top` 有效率低于 80%；
+- 任一侧找不到五个可靠速度峰；
+- 五个峰拟合出的时间比例不在 0.85–1.15；
+- 锚点 RMSE 超过 0.20 秒或单个残差超过 0.35 秒；
+- 映射后的动作窗口超出 QTM 数据范围。
 
-- Qualisys 只使用 Z/Y 两轴，计算与 RTMPose 相同的 0–180° 无符号内角。
-- 正手截击和反手截击分别统计，但 RTMPose 都复用已有 `volley` 姿态入口，因为角度公式相同。
-- 当前髋点使用同侧 ASIS/PSIS 中点作为临时近似；正式实验最好换成 QTM Skeleton 髋关节中心。
-- QTM 的 `TRAJECTORY_TYPES=Mixed` 可能已经包含补点；当前 Qualisys 转换不会再次插值。
-- Web 页面仍保持正手、反手、发球、截击四类，本模块的五动作拆分不会影响前端。
+失败时先检查三个输入是否为同一次采集，再看球拍识别和 `Racket_top` 缺失情况。动作确实不是
+五次时才修改 `EXPECTED_REPETITIONS`；正式实验若预设为五次，不建议为了让某个坏试次通过而
+临时改阈值。第一版不使用自由 DTW，也不允许每个关节各自左右平移。
 
-信效度指标和实验质量控制的详细说明见
-[`docs/qualisys_validation.md`](../docs/qualisys_validation.md)。
+## 当前角度定义与限制
+
+- RTMPose 使用图像 x/y；Qualisys 使用全局 Z/Y，两边都是 0–180° 无符号三点内角。
+- 肩：肘–肩–髋；肘：肩–肘–腕；髋：肩–髋–膝；膝：髋–膝–踝。
+- QTM 肘、腕、膝、踝取内外侧 marker 中点。
+- 当前髋取同侧 ASIS/PSIS 中点，只是临时近似，不等同于 Skeleton 解剖学髋中心。
+- 自动对齐解决的是“同一物理动作对应哪个时刻”，不是提高或修饰角度准确率。
+- `all` 只是逐帧描述统计；正式论文推断要处理受试者/试次内的重复测量和帧间自相关。
+
+研究设计与各指标解释见 [`docs/qualisys_validation.md`](../docs/qualisys_validation.md)。
