@@ -39,17 +39,17 @@ INPUT_VIDEO = Path(r"D:\experiment\serve_01.mp4")
 ```text
 data/manual/output/serve/serve_01/
 ├── serve_01_body_angles.csv
-├── serve_01_racket_keypoints.csv
-├── serve_01_combined.csv
 └── serve_01_pose_racket_overlay.mp4
 ```
 
-- `body_angles.csv`：12 个核心人体关节的 x/y/置信度、左右肩/肘/髋/膝二维夹角等。
-- `racket_keypoints.csv`：球拍 `t/l/r/b/h` 五点的 raw/interp/clean 坐标、置信度及派生特征。
-- `combined.csv`：按帧合并前两个 CSV，并增加拍头相对手腕、身体中心等字段。
-- `pose_racket_overlay.mp4`：青色人体骨架、黄色人体点、洋红色拍面、橙色拍柄和绿色球拍点。
+- `body_angles.csv`：除 `frame`、`time` 外，仅保存左右肩/肘/髋/膝共 8 个二维夹角。
+- `pose_racket_overlay.mp4`：完整 Halpe26 人体骨架、黄色人体点、洋红色球拍连线和绿色球拍点。
 
-拍面按 `t-l-b-r-t` 闭合，拍柄按 `b-h` 连接。输出视频由 OpenCV 编码，保留原始尺寸与帧率，当前不复制原视频音轨。
+球拍五点数据只作为视频绘制的临时缓存，绘制完成后自动清理，不会在输出目录中增加额外 CSV。项目原有 Web 球拍 CSV 与分析流水线不受影响。
+如果同一视频目录中残留上一版离线入口生成的 `*_racket_keypoints.csv` 或
+`*_combined.csv`，新脚本成功运行后会清理这两个已废弃文件。
+
+拍面按 `t-l-b-r-t` 闭合，拍柄按 `b-h` 连接，拍面和拍柄颜色一致。球拍可视化会用宽松的滚动尺寸与时间连续性检查去除明显跳点，并只补最多 2 帧的小缺口。侧视拍面允许被压缩得很窄，不使用拍面面积、凸性或最小宽度作为限制。上述修正只影响绘制，不改写球拍 CSV。输出视频由 OpenCV 编码，保留原始尺寸与帧率，当前不复制原视频音轨。
 
 ## 二维角度标准
 

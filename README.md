@@ -141,8 +141,9 @@ python -m algorithm.volley.angles_csv --video input.mp4 --output-dir result_anal
 ## 不启动 Web 的完整离线分析
 
 `standalone/` 下提供正手、反手、发球、截击四个可在 PyCharm 中直接运行的脚本。
-只需修改脚本顶部的输入视频路径，即可一次生成：人体关键点与二维角度 CSV、球拍五点
-CSV、人体与球拍合并 CSV，以及同时绘制人体骨架和球拍轮廓的 MP4。
+只需修改脚本顶部的输入视频路径，即可一次生成：仅含左右肩/肘/髋/膝 8 个二维角度
+的人体 CSV，以及绘制完整 Halpe26 骨架和球拍轮廓的 MP4。球拍五点只作为视频绘制
+的临时数据，不额外保存 CSV；原有 Web 流水线不受影响。
 
 输入默认位于 `data/manual/input/`，结果位于
 `data/manual/output/{动作}/{视频名}/`。详细说明见

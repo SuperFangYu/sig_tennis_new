@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Union
+from typing import Any, Callable, Dict, Optional, Sequence, Union
 
 import cv2
 import numpy as np
@@ -35,12 +35,16 @@ def run_pose_csv(
     extra_frame_fn: Optional[ExtraFrameFn] = None,
     yolo_conf: float = 0.25,
     csv_filename: Optional[str] = None,
+    csv_columns: Optional[Sequence[str]] = None,
+    collect_halpe26: bool = False,
 ) -> Dict[str, Any]:
     """
     逐帧提取人体 2D kinematic features 并写入 CSV。
 
     csv_suffix: 默认输出文件名 {video}_body_{csv_suffix}.csv
     csv_filename: 可选的自定义输出文件名，供离线实验入口组织产物
+    csv_columns: 可选的最终 CSV 列；不改变内部特征计算
+    collect_halpe26: 是否在返回值中携带逐帧 26 点，仅用于视频回绘
     extra_frame_fn: 在基础特征上追加动作特有列（如 shoulder_turn_x_diff）
     """
     video_path = Path(video_path)
@@ -79,6 +83,7 @@ def run_pose_csv(
         fps = 30.0
 
     data_list: list[Dict[str, float]] = []
+    pose_frames: list[tuple[np.ndarray, np.ndarray]] = []
     frame_cnt = 0
     print("🎬 引擎加载完毕，开始逐帧提取身体 2D 运动学特征...")
 
@@ -89,6 +94,8 @@ def run_pose_csv(
         frame_cnt += 1
 
         frame_data = empty_frame_pose_row(float(frame_cnt), float(frame_cnt / fps))
+        frame_keypoints = np.full((26, 2), np.nan, dtype=np.float32)
+        frame_scores = np.full(26, np.nan, dtype=np.float32)
 
         results = detector.detect(frame)
         person_bboxes: list[np.ndarray] = []
@@ -103,6 +110,14 @@ def run_pose_csv(
         if len(person_bboxes_arr) > 0:
             keypoints, scores = pose_estimator.estimate(frame, person_bboxes_arr)
             if keypoints is not None and scores is not None:
+                if collect_halpe26:
+                    point_count = min(26, len(keypoints[0]), len(scores[0]))
+                    frame_keypoints[:point_count] = np.asarray(
+                        keypoints[0][:point_count, :2], dtype=np.float32
+                    )
+                    frame_scores[:point_count] = np.asarray(
+                        scores[0][:point_count], dtype=np.float32
+                    )
                 frame_data.update(
                     build_frame_pose_features(keypoints[0], scores[0], kpt_thr=kpt_thr)
                 )
@@ -111,6 +126,8 @@ def run_pose_csv(
             frame_data.update(extra_frame_fn(frame_data))
 
         data_list.append(frame_data)
+        if collect_halpe26:
+            pose_frames.append((frame_keypoints, frame_scores))
 
         if frame_cnt % 30 == 0 and total_frames > 0:
             progress = (frame_cnt / total_frames) * 100
@@ -125,8 +142,18 @@ def run_pose_csv(
     df[interp_cols] = df[interp_cols].interpolate(method="linear", limit_direction="both")
     df[interp_cols] = df[interp_cols].bfill().ffill()
 
+    export_df = df
+    if csv_columns is not None:
+        missing = [column for column in csv_columns if column not in df.columns]
+        if missing:
+            raise ValueError(f"人体 CSV 缺少指定列: {', '.join(missing)}")
+        export_df = df[list(csv_columns)].copy()
+
     csv_save_path = output_dir / (csv_filename or f"{video_name}_body_{csv_suffix}.csv")
-    df.to_csv(str(csv_save_path), index=False, encoding="utf-8-sig")
+    export_df.to_csv(str(csv_save_path), index=False, encoding="utf-8-sig")
     print(f"✅ 身体 CSV 已保存: {csv_save_path}")
 
-    return {"csv": str(csv_save_path), "video_name": video_name}
+    result: Dict[str, Any] = {"csv": str(csv_save_path), "video_name": video_name}
+    if collect_halpe26:
+        result["pose_frames"] = pose_frames
+    return result

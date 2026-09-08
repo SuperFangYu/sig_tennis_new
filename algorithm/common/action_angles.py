@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, Optional, Sequence, Union
 
 import numpy as np
 
@@ -41,6 +41,8 @@ def run_action_angles_csv(
     checkpoint_path: Optional[PathLike] = None,
     yolo_model_path: Optional[PathLike] = None,
     csv_filename: Optional[str] = None,
+    csv_columns: Optional[Sequence[str]] = None,
+    collect_halpe26: bool = False,
 ) -> Dict[str, Any]:
     """按动作类型导出与 Web 流水线完全相同的人体关键点和角度 CSV。"""
     normalized = str(action).strip().lower()
@@ -62,6 +64,8 @@ def run_action_angles_csv(
         yolo_model_path=yolo_model_path,
         yolo_conf=yolo_conf,
         csv_filename=csv_filename,
+        csv_columns=csv_columns,
+        collect_halpe26=collect_halpe26,
         extra_frame_fn=_backhand_extra if normalized == "backhand" else None,
     )
 

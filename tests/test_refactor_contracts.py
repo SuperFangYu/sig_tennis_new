@@ -7,8 +7,12 @@ import numpy as np
 import pandas as pd
 
 from algorithm.common.action_angles import run_action_angles_csv
-from algorithm.common.analysis_overlay import render_pose_racket_video
+from algorithm.common.analysis_overlay import (
+    render_pose_racket_video,
+    stabilize_racket_visual_points,
+)
 from algorithm.common.manual_analysis import normalize_action
+from algorithm.common.pose_features import EIGHT_ANGLE_COLUMNS, HALPE26_NAMES
 from backend.app import app
 from backend.routers.action_router import classify_artifact
 from backend.services.pipeline import _collect_action_artifacts
@@ -112,6 +116,47 @@ class TestManualAnalysisEntrypoints(unittest.TestCase):
         with self.assertRaises(ValueError):
             normalize_action("smash")
 
+    def test_manual_body_csv_contract_is_exactly_eight_angles(self) -> None:
+        self.assertEqual(len(EIGHT_ANGLE_COLUMNS), 8)
+        self.assertEqual(
+            set(EIGHT_ANGLE_COLUMNS),
+            {
+                "left_shoulder_angle",
+                "right_shoulder_angle",
+                "left_elbow_angle",
+                "right_elbow_angle",
+                "left_hip_angle",
+                "right_hip_angle",
+                "left_knee_angle",
+                "right_knee_angle",
+            },
+        )
+
+    def test_racket_visual_stabilizer_allows_edge_on_face_and_repairs_short_outlier(self) -> None:
+        rows = []
+        normal = {
+            "t": (60, 20),
+            "l": (59, 40),
+            "r": (61, 40),  # 侧视拍面很窄，应保留
+            "b": (60, 60),
+            "h": (60, 90),
+        }
+        for frame in (1, 2, 3, 4):
+            row = {"frame": frame}
+            for name, (x, y) in normal.items():
+                if frame == 3:
+                    x += 900
+                    y += 900
+                row[f"{name}_x_clean"] = x
+                row[f"{name}_y_clean"] = y
+                row[f"{name}_conf"] = 0.9
+            rows.append(row)
+
+        stabilized = stabilize_racket_visual_points(pd.DataFrame(rows))
+        self.assertEqual(stabilized[1]["l"], (59, 40))
+        self.assertEqual(stabilized[1]["r"], (61, 40))
+        self.assertEqual(stabilized[3]["t"], (60, 20))
+
     def test_overlay_video_renders_body_and_racket_csv(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
@@ -162,6 +207,16 @@ class TestManualAnalysisEntrypoints(unittest.TestCase):
                 racket_csv,
                 output_video,
                 action="serve",
+                pose_frames=[
+                    (
+                        np.asarray(
+                            [[20 + index * 3, 20 + index * 2] for index in range(26)],
+                            dtype=np.float32,
+                        ),
+                        np.full(26, 0.9, dtype=np.float32),
+                    )
+                    for _ in range(2)
+                ],
             )
             self.assertEqual(Path(result), output_video.resolve())
             self.assertTrue(output_video.exists())
@@ -173,6 +228,7 @@ class TestManualAnalysisEntrypoints(unittest.TestCase):
             cap.release()
             self.assertTrue(ok)
             self.assertGreater(int(rendered.sum()), 0)
+            self.assertEqual(len(HALPE26_NAMES), 26)
 
 
 class TestFrontendContracts(unittest.TestCase):

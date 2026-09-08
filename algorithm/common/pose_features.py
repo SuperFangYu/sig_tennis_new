@@ -24,6 +24,78 @@ HALPE_IDX = {
     "r_ankle": 16,
 }
 
+# RTMPose Halpe-26 的完整点位顺序。角度仍只使用下方 12 个核心关节，
+# 完整 26 点只供离线视频可视化，不写入角度 CSV。
+HALPE26_NAMES = (
+    "nose",
+    "left_eye",
+    "right_eye",
+    "left_ear",
+    "right_ear",
+    "left_shoulder",
+    "right_shoulder",
+    "left_elbow",
+    "right_elbow",
+    "left_wrist",
+    "right_wrist",
+    "left_hip",
+    "right_hip",
+    "left_knee",
+    "right_knee",
+    "left_ankle",
+    "right_ankle",
+    "head",
+    "neck",
+    "hip",
+    "left_big_toe",
+    "right_big_toe",
+    "left_small_toe",
+    "right_small_toe",
+    "left_heel",
+    "right_heel",
+)
+
+HALPE26_CONNECTIONS = (
+    ("left_ankle", "left_knee"),
+    ("left_knee", "left_hip"),
+    ("left_hip", "hip"),
+    ("right_ankle", "right_knee"),
+    ("right_knee", "right_hip"),
+    ("right_hip", "hip"),
+    ("head", "neck"),
+    ("neck", "hip"),
+    ("neck", "left_shoulder"),
+    ("left_shoulder", "left_elbow"),
+    ("left_elbow", "left_wrist"),
+    ("neck", "right_shoulder"),
+    ("right_shoulder", "right_elbow"),
+    ("right_elbow", "right_wrist"),
+    ("left_eye", "right_eye"),
+    ("nose", "left_eye"),
+    ("nose", "right_eye"),
+    ("left_eye", "left_ear"),
+    ("right_eye", "right_ear"),
+    ("left_ear", "left_shoulder"),
+    ("right_ear", "right_shoulder"),
+    ("left_ankle", "left_big_toe"),
+    ("left_ankle", "left_small_toe"),
+    ("left_ankle", "left_heel"),
+    ("right_ankle", "right_big_toe"),
+    ("right_ankle", "right_small_toe"),
+    ("right_ankle", "right_heel"),
+)
+
+EIGHT_ANGLE_COLUMNS = (
+    "left_shoulder_angle",
+    "right_shoulder_angle",
+    "left_elbow_angle",
+    "right_elbow_angle",
+    "left_hip_angle",
+    "right_hip_angle",
+    "left_knee_angle",
+    "right_knee_angle",
+)
+
 # CSV 列前缀（left/right）
 JOINT_CSV_NAMES = (
     "left_shoulder",
