@@ -8,12 +8,42 @@ import numpy as np
 import pandas as pd
 
 from qualisys.compare_angles import _read_events, compare_trial
-from qualisys.config import ANGLE_COLUMNS
+from qualisys.config import ACTION_PIPELINES, ANGLE_COLUMNS
 from qualisys.run_qualisys import build_qualisys_angles, read_qtm_3d_tsv
-from qualisys.trials import Trial, load_trials
+from qualisys.trials import Trial, discover_trials, load_trials, parse_trial_stem
 
 
 class QualisysFrameworkTests(unittest.TestCase):
+    def test_five_action_filename_rules(self):
+        cases = {
+            "张三_正手": ("张三", "forehand"),
+            "张三_反手": ("张三", "backhand"),
+            "张三_正手截击": ("张三", "forehand_volley"),
+            "张三_反手截击": ("张三", "backhand_volley"),
+            "张三_发球": ("张三", "serve"),
+        }
+        for stem, expected in cases.items():
+            with self.subTest(stem=stem):
+                self.assertEqual(parse_trial_stem(stem), expected)
+        self.assertEqual(ACTION_PIPELINES["forehand_volley"], "volley")
+        self.assertEqual(ACTION_PIPELINES["backhand_volley"], "volley")
+
+    def test_matching_video_and_qtm_stems_are_discovered(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            video_root = root / "video"
+            qtm_root = root / "qtm"
+            video_root.mkdir()
+            qtm_root.mkdir()
+            (video_root / "张三_正手截击.mp4").touch()
+            (qtm_root / "张三_正手截击.tsv").touch()
+
+            trials = discover_trials(video_root=video_root, qtm_root=qtm_root)
+
+            self.assertEqual(len(trials), 1)
+            self.assertEqual(trials[0].trial_id, "张三_正手截击")
+            self.assertEqual(trials[0].action, "forehand_volley")
+
     def test_manifest_pairs_video_and_3d_without_force_plate_columns(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

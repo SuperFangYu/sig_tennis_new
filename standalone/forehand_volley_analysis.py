@@ -1,4 +1,4 @@
-"""截击：修改下方参数后，在 PyCharm 中直接运行本文件。"""
+"""正手截击：修改下方参数后，在 PyCharm 中直接运行本文件。"""
 
 from pathlib import Path
 import sys
@@ -10,7 +10,7 @@ if str(REPO_ROOT) not in sys.path:
 from algorithm.common.manual_analysis import run_manual_analysis
 
 # ===== 通常只需要修改这里 =====
-INPUT_VIDEO = REPO_ROOT / "data" / "manual" / "input" / "volley.mp4"
+INPUT_VIDEO = REPO_ROOT / "data" / "manual" / "input" / "forehand_volley.mp4"
 OUTPUT_ROOT = REPO_ROOT / "data" / "manual" / "output"
 DEVICE = "cuda:0"
 HANDEDNESS = "right"  # 右手持拍填 right，左手持拍填 left
@@ -19,7 +19,7 @@ HANDEDNESS = "right"  # 右手持拍填 right，左手持拍填 left
 
 if __name__ == "__main__":
     run_manual_analysis(
-        "volley",
+        "forehand_volley",
         INPUT_VIDEO,
         OUTPUT_ROOT,
         device=DEVICE,

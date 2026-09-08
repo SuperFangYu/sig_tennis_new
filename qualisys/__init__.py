@@ -1,11 +1,25 @@
 """RTMPose 与 Qualisys 二维关节角验证工具。"""
 
-from .config import ANGLE_COLUMNS, DATA_ROOT, INPUT_ROOT, INTERMEDIATE_ROOT, OUTPUT_ROOT
+from .config import (
+    ACTION_LABELS,
+    ACTION_PIPELINES,
+    ANGLE_COLUMNS,
+    DATA_ROOT,
+    INPUT_ROOT,
+    INTERMEDIATE_ROOT,
+    OUTPUT_ROOT,
+    QTM_INPUT_ROOT,
+    VIDEO_INPUT_ROOT,
+)
 
 __all__ = [
+    "ACTION_LABELS",
+    "ACTION_PIPELINES",
     "ANGLE_COLUMNS",
     "DATA_ROOT",
     "INPUT_ROOT",
     "INTERMEDIATE_ROOT",
     "OUTPUT_ROOT",
+    "QTM_INPUT_ROOT",
+    "VIDEO_INPUT_ROOT",
 ]

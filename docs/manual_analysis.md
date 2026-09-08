@@ -1,15 +1,16 @@
-# 四动作离线实验入口
+# 五动作离线实验入口
 
 这套入口不需要启动 FastAPI 或前端，适用于 RTMPose 与 Qualisys 的对比实验。
 
 ## 在 PyCharm 中运行
 
-根据动作打开以下一个文件：
+根据实验动作打开以下一个文件。这里把截击拆成正手截击与反手截击，但不修改 Web 的四动作页面：
 
 - `standalone/forehand_analysis.py`
 - `standalone/backhand_analysis.py`
+- `standalone/forehand_volley_analysis.py`
+- `standalone/backhand_volley_analysis.py`
 - `standalone/serve_analysis.py`
-- `standalone/volley_analysis.py`
 
 修改文件顶部的参数：
 
@@ -31,6 +32,9 @@ INPUT_VIDEO = Path(r"D:\experiment\serve_01.mp4")
 - `weights/yolov8m.pt`：人体检测
 - `weights/rtmpose_m_halpe26.pth`：人体关键点
 - `weights/bestnew.pt`：球拍五点
+
+正手截击和反手截击分别输出到 `forehand_volley/` 与 `backhand_volley/`，底层均复用项目已有
+`volley` 姿态与球拍处理。两者的 8 角公式相同，拆分的目的是让后续实验分组和统计不混在一起。
 
 ## 每次运行的结果
 

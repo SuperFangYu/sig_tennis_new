@@ -1,4 +1,8 @@
-"""按人工事件锚点对齐两套八角曲线并计算初步一致性指标。"""
+"""阶段 3：按人工事件锚点对齐两套八角曲线并计算初步一致性指标。
+
+输入是阶段 1/2 的 CSV 与两张人工事件表；输出是对齐明细、角度指标、事件误差和质控表。
+同一次重复动作的八个关节严格共用一个时间映射。
+"""
 
 from __future__ import annotations
 
@@ -259,7 +263,12 @@ def compare_trial(trial: Trial) -> dict[str, str]:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="按人工事件对齐并比较 RTMPose 与 Qualisys 八角。")
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=DEFAULT_MANIFEST,
+        help="可选 manifest.csv；不存在时自动扫描 input/video 与 input/qtm",
+    )
     parser.add_argument("--trial", action="append", dest="trial_ids", help="只处理指定 trial_id，可重复")
     parser.add_argument(
         "--prepare-events",

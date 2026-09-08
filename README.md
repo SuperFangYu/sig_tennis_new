@@ -28,7 +28,7 @@ sig_tennis_new/
 ├── requirements.txt                # 列出项目 Python 直接依赖。
 ├── backend/                        # Web 后端与分析任务编排。
 ├── algorithm/                      # 人体、球拍、切分和运动学算法。
-├── standalone/                     # 不启动 Web 的四动作本地视频分析入口。
+├── standalone/                     # 不启动 Web 的五动作本地视频分析入口。
 ├── qualisys/                       # RTMPose–Qualisys 成对验证流水线，不使用测力台。
 ├── Vue/                            # 由 FastAPI 托管的 Vue 静态前端。
 ├── configs/                        # RTMPose 模型配置。
@@ -76,20 +76,28 @@ sig_tennis_new/
 每个 `algorithm/{forehand,backhand,serve,volley}/angles_csv.py` 都是对应动作的人体角度入口，
 每个 `point_track.py` 都是对应动作的球拍追踪兼容入口，每个 `segmentation.py` 都保存对应动作
 的切分规则；`forehand/plot_kinetic_chain.py` 与 `backhand/plot_kinetic_chain.py` 分别生成正手和
-反手专项动力链图。四个 `standalone/*_analysis.py` 则是在 PyCharm 中修改顶部视频路径后直接
-运行的完整离线入口。
+反手专项动力链图。Web 和底层算法仍保持四类；五个 `standalone/*_analysis.py` 将截击拆成
+正手截击和反手截击，用于在 PyCharm 中独立运行及分组实验。
+
+| 五动作离线入口 | 一句话说明 |
+|---|---|
+| `standalone/forehand_analysis.py` | 手动运行正手视频分析。 |
+| `standalone/backhand_analysis.py` | 手动运行反手视频分析。 |
+| `standalone/forehand_volley_analysis.py` | 手动运行正手截击视频分析并单独保存结果。 |
+| `standalone/backhand_volley_analysis.py` | 手动运行反手截击视频分析并单独保存结果。 |
+| `standalone/serve_analysis.py` | 手动运行发球视频分析。 |
 
 ### Qualisys 验证文件
 
 | 文件 | 一句话说明 |
 |---|---|
 | `qualisys/config.py` | 定义验证目录、8 角列和默认 Qualisys marker 映射。 |
-| `qualisys/trials.py` | 读取清单并保证一个试次只配对同次采集的视频和 3D TSV。 |
+| `qualisys/trials.py` | 自动配对 video/qtm 中同名的五动作文件，或读取可选清单。 |
 | `qualisys/run_rtmpose.py` | 独立生成视频的 RTMPose 8 角 CSV。 |
 | `qualisys/run_qualisys.py` | 把 Qualisys 3D marker 投影到 ZY 并生成同定义 8 角 CSV。 |
 | `qualisys/compare_angles.py` | 用逐动作人工事件拟合时间映射并生成初步误差指标。 |
 | `qualisys/run_validation.py` | 按需串联 RTMPose、Qualisys 和 compare 三个阶段。 |
-| `qualisys/data/input/manifest.example.csv` | 展示成对试次清单格式。 |
+| `qualisys/data/input/manifest.example.csv` | 展示需要覆盖自动配对信息时使用的可选清单格式。 |
 | `qualisys/data/input/marker_map.example.json` | 展示可覆盖的 marker–关节映射格式。 |
 
 ### 前端、配置与测试文件
@@ -115,16 +123,17 @@ sig_tennis_new/
 |---|---|
 | `docs/architecture.md` | 说明单仓库依赖方向、稳定接口与各流水线边界。 |
 | `docs/angle_csv.md` | 说明 RTMPose 关节角、字段及插值行为。 |
-| `docs/manual_analysis.md` | 说明四动作 PyCharm 离线入口的参数、产物与可视化。 |
+| `docs/manual_analysis.md` | 说明五动作 PyCharm 离线入口的参数、产物与可视化。 |
 | `docs/qualisys_validation.md` | 说明成对输入、ZY 角度、逐动作对齐、指标和实验局限。 |
 | `docs/forehand_kinetic_chart.md` | 说明正手动力链图各阶段和曲线含义。 |
 | `docs/environment.md` | 记录 5090 上 `fytennis` 环境和关键依赖版本。 |
 | `docs/research/` | 保存早期特征研究材料，不作为当前运行入口。 |
 | `data/inputs/` | 保存 Web 上传视频。 |
 | `data/outputs/` | 保存按运行时间与视频名组织的 Web 分析产物。 |
-| `data/manual/input/` | 保存四动作手动分析视频。 |
+| `data/manual/input/` | 保存五动作手动分析视频。 |
 | `data/manual/output/` | 保存手动分析的 8 角 CSV 与叠加视频。 |
-| `qualisys/data/input/` | 保存真实成对视频、3D TSV、清单和可选点位映射。 |
+| `qualisys/data/input/video/` | 保存按 `人名_动作` 命名的验证视频。 |
+| `qualisys/data/input/qtm/` | 保存与视频同名的 Qualisys 3D TSV。 |
 | `qualisys/data/intermediate/` | 保存两套独立角度与人工事件表。 |
 | `qualisys/data/output/` | 保存对齐明细、指标、事件误差和质控表。 |
 | `.gitignore` | 排除权重、视频、实验数据、运行结果和本机配置。 |
@@ -217,14 +226,14 @@ python -m algorithm.volley.angles_csv --video input.mp4 --output-dir result_anal
 
 ## 不启动 Web 的完整离线分析
 
-`standalone/` 下提供正手、反手、发球、截击四个可在 PyCharm 中直接运行的脚本。
+`standalone/` 下提供正手、反手、正手截击、反手截击、发球五个可在 PyCharm 中直接运行的脚本。
 只需修改脚本顶部的输入视频路径，即可一次生成：仅含左右肩/肘/髋/膝 8 个二维角度
 的人体 CSV，以及绘制基于 Halpe26 的简化面部骨架和球拍轮廓 MP4。球拍五点只作为视频绘制
 的临时数据，不额外保存 CSV；原有 Web 流水线不受影响。
 
 输入默认位于 `data/manual/input/`，结果位于
 `data/manual/output/{动作}/{视频名}/`。详细说明见
-[四动作离线实验入口](docs/manual_analysis.md)。
+[五动作离线实验入口](docs/manual_analysis.md)。
 
 ## API 接口
 
@@ -277,7 +286,7 @@ python -m algorithm.volley.angles_csv --video input.mp4 --output-dir result_anal
 - [正手动力链图说明](docs/forehand_kinetic_chart.md)
 - [项目结构与开发边界](docs/architecture.md)
 - [独立角度 CSV 计算标准](docs/angle_csv.md)
-- [四动作离线实验入口](docs/manual_analysis.md)
+- [五动作离线实验入口](docs/manual_analysis.md)
 - [RTMPose–Qualisys 信效度验证方案](docs/qualisys_validation.md)
 - [Qualisys 验证模块操作说明](qualisys/README.md)
 - [fytennis 环境记录](docs/environment.md)

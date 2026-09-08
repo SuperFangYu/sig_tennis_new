@@ -1,4 +1,8 @@
-"""成对试次清单的读取、校验与目录管理。"""
+"""发现或读取成对试次，并把输入文件转换为统一的 Trial 对象。
+
+正常使用不需要写 manifest：video/ 与 qtm/ 中同名文件会自动配对。只有需要覆盖持拍手、
+点位映射或备注时，才复制 manifest.example.csv 为 manifest.csv。
+"""
 
 from __future__ import annotations
 
@@ -7,7 +11,17 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Iterable
 
-from .config import DEFAULT_MANIFEST, INPUT_ROOT, INTERMEDIATE_ROOT, OUTPUT_ROOT, SUPPORTED_ACTIONS
+from .config import (
+    ACTION_FILENAME_ALIASES,
+    DEFAULT_MANIFEST,
+    INTERMEDIATE_ROOT,
+    OUTPUT_ROOT,
+    QTM_INPUT_ROOT,
+    SUPPORTED_ACTIONS,
+    VIDEO_INPUT_ROOT,
+)
+
+VIDEO_EXTENSIONS = (".mp4", ".mov", ".avi", ".mkv", ".m4v")
 
 REQUIRED_COLUMNS = (
     "trial_id",
@@ -73,18 +87,97 @@ def _resolve_input_path(value: str, input_root: Path) -> Path:
     return path.resolve() if path.is_absolute() else (input_root / path).resolve()
 
 
+def normalize_experiment_action(value: str) -> str:
+    """把中英文动作名称统一为五类实验动作代码。"""
+    normalized = str(value).strip().lower()
+    alias_lookup = {key.lower(): action for key, action in ACTION_FILENAME_ALIASES.items()}
+    action = alias_lookup.get(normalized, normalized)
+    if action not in SUPPORTED_ACTIONS:
+        supported = "、".join(SUPPORTED_ACTIONS)
+        raise ValueError(f"无法识别动作 {value!r}，支持: {supported}")
+    return action
+
+
+def parse_trial_stem(stem: str) -> tuple[str, str]:
+    """解析 `人名_动作` 文件名，返回 `(人名, 五类动作代码)`。"""
+    aliases = sorted(ACTION_FILENAME_ALIASES, key=len, reverse=True)
+    lower_stem = stem.lower()
+    for alias in aliases:
+        suffix = f"_{alias.lower()}"
+        if lower_stem.endswith(suffix):
+            participant = stem[: -len(suffix)].strip("_")
+            if not participant:
+                raise ValueError(f"文件名缺少人名: {stem!r}")
+            return participant, ACTION_FILENAME_ALIASES[alias]
+    expected = "、".join(f"人名_{alias}" for alias in ("正手", "反手", "正手截击", "反手截击", "发球"))
+    raise ValueError(f"文件名不符合五动作规则: {stem!r}；示例: {expected}")
+
+
+def _unique_files_by_stem(root: Path, extensions: tuple[str, ...]) -> dict[str, Path]:
+    files: dict[str, Path] = {}
+    if not root.exists():
+        return files
+    for path in sorted(root.iterdir()):
+        if not path.is_file() or path.suffix.lower() not in extensions:
+            continue
+        if path.stem in files:
+            raise ValueError(f"目录中存在同名的多个文件: {files[path.stem]} / {path}")
+        files[path.stem] = path.resolve()
+    return files
+
+
+def discover_trials(
+    *,
+    validate_pairs: bool = True,
+    video_root: Path = VIDEO_INPUT_ROOT,
+    qtm_root: Path = QTM_INPUT_ROOT,
+) -> list[Trial]:
+    """从 `input/video` 与 `input/qtm` 自动发现同名成对文件。
+
+    自动模式默认按右手持拍处理；左手受试者请使用 manifest.csv 明确填写 handedness。
+    """
+    videos = _unique_files_by_stem(video_root, VIDEO_EXTENSIONS)
+    qtm_files = _unique_files_by_stem(qtm_root, (".tsv",))
+    video_only = sorted(set(videos) - set(qtm_files))
+    qtm_only = sorted(set(qtm_files) - set(videos))
+    if validate_pairs and (video_only or qtm_only):
+        details = []
+        if video_only:
+            details.append(f"缺少同名 QTM: {', '.join(video_only)}")
+        if qtm_only:
+            details.append(f"缺少同名视频: {', '.join(qtm_only)}")
+        raise FileNotFoundError("自动配对不完整：\n- " + "\n- ".join(details))
+
+    trials: list[Trial] = []
+    for stem in sorted(set(videos) & set(qtm_files)):
+        participant, action = parse_trial_stem(stem)
+        trials.append(
+            Trial(
+                trial_id=stem,
+                participant_id=participant,
+                action=action,
+                handedness="right",
+                view_plane="ZY",
+                video_path=videos[stem],
+                qualisys_3d_path=qtm_files[stem],
+            )
+        )
+    if not trials:
+        raise FileNotFoundError(
+            f"没有发现成对试次；请把同名文件分别放入 {video_root} 和 {qtm_root}"
+        )
+    return trials
+
+
 def load_trials(
     manifest_path: Path | str = DEFAULT_MANIFEST,
     *,
     validate_files: bool = True,
 ) -> list[Trial]:
-    """读取 manifest.csv；文件路径相对 `qualisys/data/input/` 解析。"""
+    """优先读取 manifest.csv；文件不存在时按 `人名_动作` 自动配对。"""
     manifest_path = Path(manifest_path).expanduser().resolve()
     if not manifest_path.is_file():
-        raise FileNotFoundError(
-            f"找不到试次清单: {manifest_path}\n"
-            "请复制 qualisys/data/input/manifest.example.csv 为 manifest.csv 后填写。"
-        )
+        return discover_trials(validate_pairs=validate_files)
 
     input_root = manifest_path.parent
     with manifest_path.open("r", encoding="utf-8-sig", newline="") as handle:
@@ -107,9 +200,7 @@ def load_trials(
             raise ValueError(f"trial_id 只能是单层目录名: {trial_id!r}")
         seen.add(trial_id)
 
-        action = (row.get("action") or "").strip().lower()
-        if action not in SUPPORTED_ACTIONS:
-            raise ValueError(f"试次 {trial_id} 的 action 无效: {action!r}")
+        action = normalize_experiment_action(row.get("action") or "")
         handedness = (row.get("handedness") or "").strip().lower()
         if handedness not in {"left", "right"}:
             raise ValueError(f"试次 {trial_id} 的 handedness 必须是 left 或 right")
@@ -151,4 +242,12 @@ def select_trials(trials: Iterable[Trial], trial_ids: Iterable[str] | None = Non
     return selected
 
 
-__all__ = ["REQUIRED_COLUMNS", "Trial", "load_trials", "select_trials"]
+__all__ = [
+    "REQUIRED_COLUMNS",
+    "Trial",
+    "discover_trials",
+    "load_trials",
+    "normalize_experiment_action",
+    "parse_trial_stem",
+    "select_trials",
+]

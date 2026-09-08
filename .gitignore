@@ -13,6 +13,12 @@ qualisys/data/input/*
 !qualisys/data/input/README.md
 !qualisys/data/input/manifest.example.csv
 !qualisys/data/input/marker_map.example.json
+!qualisys/data/input/video/
+!qualisys/data/input/qtm/
+qualisys/data/input/video/*
+!qualisys/data/input/video/README.md
+qualisys/data/input/qtm/*
+!qualisys/data/input/qtm/README.md
 qualisys/data/intermediate/*
 !qualisys/data/intermediate/README.md
 qualisys/data/output/*

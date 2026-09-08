@@ -19,7 +19,8 @@ paired video + Qualisys 3D TSV -> qualisys validation -> qualisys/data/output
 - `backend/services/pipeline.py` 统一四类动作的追踪、角度导出、融合和切分顺序。
 - `algorithm/common/` 只保存动作无关的通用算法。
 - `algorithm/{action}/` 保存动作入口和动作特有的切分规则。
-- `standalone/` 调用公共算法生成 8 角 CSV 和人体/球拍叠加视频，不经过 Web。
+- `standalone/` 调用公共算法生成 8 角 CSV 和人体/球拍叠加视频，不经过 Web；实验层把截击
+  拆为正手截击和反手截击，因此有五个入口，但二者都复用底层 `volley` 算法。
 - `qualisys/` 是独立实验验证层，只复用 RTMPose 角度定义，不接入后端 API，也不读取测力台。
 
 ## 稳定接口
@@ -42,7 +43,8 @@ paired video + Qualisys 3D TSV -> qualisys validation -> qualisys/data/output
 
 ## 实验验证边界
 
-`qualisys/` 中每个试次必须是真正对应的一个视频和一个 3D marker TSV。RTMPose 与 Qualisys
+`qualisys/data/input/video` 与 `qtm` 中同名的 `人名_动作` 文件组成一个试次；五类动作是
+正手、反手、正手截击、反手截击和发球。RTMPose 与 Qualisys
 先独立生成相同列定义的 CSV，再由人工事件表建立逐动作时间映射。测力台文件、肩髋分离角、
 Web 产物和球拍可视化都不进入当前 8 角效度比较。详细约束见
 [`qualisys_validation.md`](qualisys_validation.md)。

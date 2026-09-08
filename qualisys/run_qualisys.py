@@ -1,4 +1,7 @@
-"""把 Qualisys 3D TSV 投影到 ZY 平面并计算八个关节角。"""
+"""阶段 2：读取一个试次的 Qualisys 3D TSV，生成 ZY 平面八角 CSV。
+
+本文件不运行 RTMPose、不做时间对齐，也不读取测力台数据。
+"""
 
 from __future__ import annotations
 
@@ -138,8 +141,13 @@ def run_qualisys_trial(trial: Trial) -> dict[str, object]:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="按试次清单生成 Qualisys ZY 平面八角 CSV。")
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser = argparse.ArgumentParser(description="按自动配对或可选清单生成 Qualisys ZY 平面八角 CSV。")
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=DEFAULT_MANIFEST,
+        help="可选 manifest.csv；不存在时自动扫描 input/video 与 input/qtm",
+    )
     parser.add_argument("--trial", action="append", dest="trial_ids", help="只处理指定 trial_id，可重复")
     args = parser.parse_args()
 

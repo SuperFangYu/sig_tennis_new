@@ -101,17 +101,30 @@ class TestStandaloneAngleEntrypoints(unittest.TestCase):
 
 
 class TestManualAnalysisEntrypoints(unittest.TestCase):
-    def test_four_pycharm_scripts_are_importable_without_loading_models(self) -> None:
+    def test_five_pycharm_scripts_are_importable_without_loading_models(self) -> None:
         from standalone import (
             backhand_analysis,
+            backhand_volley_analysis,
             forehand_analysis,
+            forehand_volley_analysis,
             serve_analysis,
-            volley_analysis,
         )
 
-        modules = (forehand_analysis, backhand_analysis, serve_analysis, volley_analysis)
+        modules = (
+            forehand_analysis,
+            backhand_analysis,
+            forehand_volley_analysis,
+            backhand_volley_analysis,
+            serve_analysis,
+        )
         self.assertTrue(all(module.INPUT_VIDEO.name.endswith(".mp4") for module in modules))
         self.assertTrue(all(module.OUTPUT_ROOT.name == "output" for module in modules))
+
+    def test_manual_volley_actions_are_split(self) -> None:
+        self.assertEqual(normalize_action("forehand_volley"), "forehand_volley")
+        self.assertEqual(normalize_action("backhand_volley"), "backhand_volley")
+        with self.assertRaises(ValueError):
+            normalize_action("volley")
 
     def test_unknown_manual_action_fails_before_model_loading(self) -> None:
         with self.assertRaises(ValueError):

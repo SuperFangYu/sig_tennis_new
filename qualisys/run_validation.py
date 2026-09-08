@@ -1,4 +1,7 @@
-"""按阶段运行同一试次的 RTMPose、Qualisys 与对比流程。"""
+"""总入口：按顺序调用 RTMPose、Qualisys、人工事件准备与比较阶段。
+
+第一次建议先运行 rtmpose/qualisys，再用 --prepare-events 建表并人工填写，最后运行 compare。
+"""
 
 from __future__ import annotations
 
@@ -21,7 +24,12 @@ STAGES = ("rtmpose", "qualisys", "compare")
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="运行 RTMPose–Qualisys 验证流水线。")
-    parser.add_argument("--manifest", type=Path, default=DEFAULT_MANIFEST)
+    parser.add_argument(
+        "--manifest",
+        type=Path,
+        default=DEFAULT_MANIFEST,
+        help="可选 manifest.csv；不存在时自动扫描 input/video 与 input/qtm",
+    )
     parser.add_argument("--trial", action="append", dest="trial_ids", help="只处理指定 trial_id，可重复")
     parser.add_argument("--stage", action="append", choices=STAGES, dest="stages", help="指定阶段，可重复")
     parser.add_argument("--device", default="cuda:0")

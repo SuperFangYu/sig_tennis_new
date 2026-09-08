@@ -9,7 +9,7 @@
 | 文件 | 一句话说明 |
 |---|---|
 | `config.py` | 保存数据目录、8 个角度列、ZY 平面与默认 marker 映射。 |
-| `trials.py` | 读取并校验 `manifest.csv`，把每一行转换为一个成对试次。 |
+| `trials.py` | 自动配对 video/qtm 同名文件，或读取可选 `manifest.csv`。 |
 | `run_rtmpose.py` | 对试次视频运行项目已有 RTMPose，独立生成 8 角 CSV。 |
 | `run_qualisys.py` | 读取 3D TSV、投影到 ZY 平面并按相同三点定义生成 8 角 CSV。 |
 | `compare_angles.py` | 用人工事件锚点逐动作对齐、重采样并输出初步一致性指标。 |
@@ -18,22 +18,27 @@
 
 ## 输入组织
 
-不放测力台的 `_a_1.tsv`、`_a_2.tsv`。建议每个试次使用独立目录：
+不放测力台的 `_a_1.tsv`、`_a_2.tsv`。默认输入结构是：
 
 ```text
 qualisys/data/input/
-├── manifest.csv
-├── trial_001/
-│   ├── video.mp4
-│   ├── markers_3d.tsv
-│   └── marker_map.json       # 可选；点名不同时才需要
-└── trial_002/
-    ├── video.mp4
-    └── markers_3d.tsv
+├── video/
+│   ├── 张三_正手.mp4
+│   ├── 张三_正手截击.mp4
+│   └── 张三_发球.mp4
+├── qtm/
+│   ├── 张三_正手.tsv
+│   ├── 张三_正手截击.tsv
+│   └── 张三_发球.tsv
+├── manifest.example.csv     # 可选清单格式示例
+└── marker_map.example.json  # 可选点位映射格式示例
 ```
 
-复制 `data/input/manifest.example.csv` 为 `manifest.csv`，每行登记一个真实成对试次。清单路径
-相对于 `qualisys/data/input/`；也可以填写 Windows 绝对路径。
+视频与 TSV 主文件名完全相同时自动配对，不需要创建 `manifest.csv`。文件名必须是
+`人名_动作`，动作后缀支持：正手、反手、正手截击、反手截击、发球。自动模式默认右手持拍。
+
+`manifest.example.csv` 只是可选的试次索引模板：需要设置左手、使用不同文件名、自定义 marker
+映射或记录备注时，才复制为 `manifest.csv`。它不会参与角度计算，也不是程序输出。
 
 ## 推荐运行顺序
 
@@ -41,26 +46,29 @@ qualisys/data/input/
 conda activate fytennis
 
 # 1. 分别生成视频与 Qualisys 八角 CSV
-python -m qualisys.run_rtmpose --trial trial_001
-python -m qualisys.run_qualisys --trial trial_001
+python -m qualisys.run_rtmpose --trial 张三_正手
+python -m qualisys.run_qualisys --trial 张三_正手
 
 # 2. 创建事件模板，人工填写每个动作的 start/contact/end 秒数
-python -m qualisys.compare_angles --trial trial_001 --prepare-events
+python -m qualisys.compare_angles --trial 张三_正手 --prepare-events
 
 # 3. 对齐和比较
-python -m qualisys.compare_angles --trial trial_001
+python -m qualisys.compare_angles --trial 张三_正手
 ```
 
 也可用总入口选择阶段：
 
 ```powershell
-python -m qualisys.run_validation --trial trial_001 --stage rtmpose --stage qualisys
-python -m qualisys.run_validation --trial trial_001 --prepare-events
-python -m qualisys.run_validation --trial trial_001 --stage compare
+python -m qualisys.run_validation --trial 张三_正手 --stage rtmpose --stage qualisys
+python -m qualisys.run_validation --trial 张三_正手 --prepare-events
+python -m qualisys.run_validation --trial 张三_正手 --stage compare
 ```
 
-不传 `--trial` 会处理清单中的全部试次。RTMPose 阶段依赖 CUDA、模型权重和真实视频；
+不传 `--trial` 会处理自动发现或清单中的全部试次。RTMPose 阶段依赖 CUDA、模型权重和真实视频；
 Qualisys 转换与 CSV 对比阶段只依赖 NumPy/Pandas。
+
+五类实验动作中的正手截击和反手截击会分别保存和统计，但 RTMPose 的 8 角计算都复用 Web
+已有的 `volley` 姿态入口，因为三点角度公式完全相同。Web 页面仍保持原来的四类动作，不拆分。
 
 ## 计算边界
 

@@ -1,2 +1,2 @@
 trial_id,participant_id,action,handedness,view_plane,video_file,qualisys_3d_file,marker_map_file,notes
-trial_001,P001,forehand,right,ZY,trial_001/video.mp4,trial_001/markers_3d.tsv,,同一次采集的一组视频与3D轨迹
+张三_正手,张三,forehand,right,ZY,video/张三_正手.mp4,qtm/张三_正手.tsv,,可选清单示例；同名自动配对时无需创建manifest.csv

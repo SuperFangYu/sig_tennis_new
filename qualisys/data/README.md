@@ -1,6 +1,8 @@
 # Qualisys 本地实验数据
 
-- `input/`：同次采集的视频、Qualisys 3D TSV、试次清单和可选 marker 映射。
+- `input/video/`：按 `人名_动作` 命名的同次采集视频。
+- `input/qtm/`：与视频同名的 Qualisys 3D TSV，不放测力台文件。
+- `input/manifest.example.csv`：只有需要覆盖自动配对信息时才使用的可选清单模板。
 - `intermediate/`：两套独立 8 角 CSV 与人工事件时间表。
 - `output/`：对齐明细、角度指标、事件误差和对齐质控表。
 

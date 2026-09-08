@@ -9,6 +9,9 @@
 本实验不使用测力台。视频和 Qualisys 文件必须来自同一次采集，但允许开始时刻、结束时刻
 和帧率不同。
 
+实验分为正手、反手、正手截击、反手截击和发球五类。Web 中仍保留统一的“截击”页面；
+五类拆分只作用于 standalone 和 Qualisys 验证结果的目录、标签与统计分组。
+
 ## 统一角度定义
 
 两套数据均计算 0–180° 无符号三点内角，第二点是顶点：
@@ -50,7 +53,9 @@ ASIS/PSIS 中点；这不是严格的解剖学髋关节中心，是正式验证�
 同次采集 3D TSV ──ZY投影+三点角──> qualisys_8_angles.csv ┘
 ```
 
-详细命令见 [`qualisys/README.md`](../qualisys/README.md)。第一次生成两套角度后，运行
+视频放入 `qualisys/data/input/video/`，3D TSV 放入 `qualisys/data/input/qtm/`，并使用完全
+相同的 `人名_动作` 主文件名。详细命令见 [`qualisys/README.md`](../qualisys/README.md)。
+第一次生成两套角度后，运行
 `--prepare-events`，打开两张事件表填写秒数，再运行 compare 阶段。
 
 ## 当前输出指标

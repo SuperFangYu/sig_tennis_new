@@ -1,4 +1,4 @@
-"""不启动前后端的四动作离线实验流水线。"""
+"""不启动前后端的五动作离线实验流水线；正/反手截击复用 volley 底层算法。"""
 
 from __future__ import annotations
 
@@ -10,7 +10,20 @@ from algorithm.common.pose_features import EIGHT_ANGLE_COLUMNS
 from algorithm.common.thresholds import HUMAN_KPT_CONF_THRESH
 
 PathLike = Union[str, Path]
-SUPPORTED_ACTIONS = ("forehand", "backhand", "serve", "volley")
+SUPPORTED_ACTIONS = (
+    "forehand",
+    "backhand",
+    "forehand_volley",
+    "backhand_volley",
+    "serve",
+)
+_PIPELINE_ACTION = {
+    "forehand": "forehand",
+    "backhand": "backhand",
+    "forehand_volley": "volley",
+    "backhand_volley": "volley",
+    "serve": "serve",
+}
 
 
 def normalize_action(action: str) -> str:
@@ -36,6 +49,7 @@ def run_manual_analysis(
 ) -> Dict[str, Any]:
     """运行人体角度、球拍追踪与叠加视频三阶段，返回两个正式产物路径。"""
     normalized = normalize_action(action)
+    pipeline_action = _PIPELINE_ACTION[normalized]
     video_path = Path(video_path).expanduser().resolve()
     output_root = Path(output_root).expanduser().resolve()
     if not video_path.exists():
@@ -54,7 +68,7 @@ def run_manual_analysis(
 
     print(f"\n[1/3] 提取 {normalized} 人体关键点与二维关节角")
     body = run_action_angles_csv(
-        normalized,
+        pipeline_action,
         video_path,
         output_dir,
         device=device,
