@@ -8,6 +8,7 @@ import pandas as pd
 
 from algorithm.common.action_angles import run_action_angles_csv
 from algorithm.common.analysis_overlay import (
+    build_halpe26_visual_points,
     render_pose_racket_video,
     stabilize_racket_visual_points,
 )
@@ -156,6 +157,25 @@ class TestManualAnalysisEntrypoints(unittest.TestCase):
         self.assertEqual(stabilized[1]["l"], (59, 40))
         self.assertEqual(stabilized[1]["r"], (61, 40))
         self.assertEqual(stabilized[3]["t"], (60, 20))
+
+    def test_halpe26_visual_head_uses_ears_and_synthetic_face_center(self) -> None:
+        keypoints = np.asarray(
+            [[10 + index, 20 + index] for index in range(26)], dtype=np.float32
+        )
+        keypoints[3] = (40, 30)
+        keypoints[4] = (60, 34)
+        scores = np.full(26, 0.9, dtype=np.float32)
+
+        points = build_halpe26_visual_points((keypoints, scores), 0.3)
+
+        self.assertNotIn("nose", points)
+        self.assertNotIn("left_eye", points)
+        self.assertNotIn("right_eye", points)
+        self.assertNotIn("head", points)
+        self.assertEqual(points["left_ear"], (40, 30))
+        self.assertEqual(points["right_ear"], (60, 34))
+        self.assertEqual(points["face_center"], (50, 32))
+        self.assertEqual(len(points), 23)
 
     def test_overlay_video_renders_body_and_racket_csv(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:

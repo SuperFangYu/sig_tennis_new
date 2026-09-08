@@ -9,6 +9,8 @@ data/manual/input/*
 !data/manual/input/README.md
 data/manual/output/*
 !data/manual/output/README.md
+qualisys/data/*
+!qualisys/data/README.md
 
 # 如果 Vue 文件夹里有前端依赖，也忽略掉（前端必备）
 Vue/node_modules/

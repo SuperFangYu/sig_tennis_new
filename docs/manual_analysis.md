@@ -43,7 +43,7 @@ data/manual/output/serve/serve_01/
 ```
 
 - `body_angles.csv`：除 `frame`、`time` 外，仅保存左右肩/肘/髋/膝共 8 个二维夹角。
-- `pose_racket_overlay.mp4`：完整 Halpe26 人体骨架、黄色人体点、洋红色球拍连线和绿色球拍点。
+- `pose_racket_overlay.mp4`：基于 Halpe26 的人体骨架、黄色人体点、洋红色球拍连线和绿色球拍点。头部不绘制鼻、双眼和头顶突出点，只保留左右耳，并在两耳中间同高度生成一个简洁的面部中心点。
 
 球拍五点数据只作为视频绘制的临时缓存，绘制完成后自动清理，不会在输出目录中增加额外 CSV。项目原有 Web 球拍 CSV 与分析流水线不受影响。
 如果同一视频目录中残留上一版离线入口生成的 `*_racket_keypoints.csv` 或

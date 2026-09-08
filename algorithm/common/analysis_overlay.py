@@ -10,7 +10,6 @@ import numpy as np
 import pandas as pd
 
 from algorithm.common.pose_features import (
-    HALPE26_CONNECTIONS,
     HALPE26_NAMES,
     JOINT_CSV_NAMES,
 )
@@ -38,6 +37,33 @@ BODY_CONNECTIONS = (
 # t=top、l=left、r=right、b=bottom 构成拍面，h=handle 与 bottom 相连。
 RACKET_FACE_CONNECTIONS = (("t", "l"), ("l", "b"), ("b", "r"), ("r", "t"))
 RACKET_COLOR = (255, 0, 220)
+
+# 可视化使用简化头部：不画鼻、双眼和头顶点，只保留双耳及其同高度中点。
+BODY_VISUAL_CONNECTIONS = (
+    ("left_ankle", "left_knee"),
+    ("left_knee", "left_hip"),
+    ("left_hip", "hip"),
+    ("right_ankle", "right_knee"),
+    ("right_knee", "right_hip"),
+    ("right_hip", "hip"),
+    ("neck", "hip"),
+    ("neck", "left_shoulder"),
+    ("left_shoulder", "left_elbow"),
+    ("left_elbow", "left_wrist"),
+    ("neck", "right_shoulder"),
+    ("right_shoulder", "right_elbow"),
+    ("right_elbow", "right_wrist"),
+    ("left_ear", "face_center"),
+    ("face_center", "right_ear"),
+    ("face_center", "neck"),
+    ("left_ankle", "left_big_toe"),
+    ("left_ankle", "left_small_toe"),
+    ("left_ankle", "left_heel"),
+    ("right_ankle", "right_big_toe"),
+    ("right_ankle", "right_small_toe"),
+    ("right_ankle", "right_heel"),
+)
+_HIDDEN_FACE_POINTS = frozenset(("nose", "left_eye", "right_eye", "head"))
 
 
 def _finite_number(value: object) -> bool:
@@ -202,7 +228,7 @@ def stabilize_racket_visual_points(
     return stabilized
 
 
-def _halpe26_points(
+def build_halpe26_visual_points(
     pose_frame: tuple[np.ndarray, np.ndarray],
     threshold: float,
 ) -> Dict[str, Point]:
@@ -210,10 +236,21 @@ def _halpe26_points(
     points: Dict[str, Point] = {}
     count = min(len(HALPE26_NAMES), len(keypoints), len(scores))
     for index in range(count):
+        name = HALPE26_NAMES[index]
+        if name in _HIDDEN_FACE_POINTS:
+            continue
         x, y = keypoints[index][:2]
         score = scores[index]
         if all(_finite_number(v) for v in (x, y, score)) and float(score) >= threshold:
-            points[HALPE26_NAMES[index]] = (int(round(float(x))), int(round(float(y))))
+            points[name] = (int(round(float(x))), int(round(float(y))))
+
+    if "left_ear" in points and "right_ear" in points:
+        left_ear = points["left_ear"]
+        right_ear = points["right_ear"]
+        points["face_center"] = (
+            int(round((left_ear[0] + right_ear[0]) / 2.0)),
+            int(round((left_ear[1] + right_ear[1]) / 2.0)),
+        )
     return points
 
 
@@ -240,7 +277,7 @@ def render_pose_racket_video(
     racket_kpt_thr: float = RACKET_KPT_VALID_THRESH,
     pose_frames: Optional[Sequence[tuple[np.ndarray, np.ndarray]]] = None,
 ) -> str:
-    """在原视频绘制完整 Halpe26 骨架和经过保守稳定的球拍轮廓。"""
+    """在原视频绘制基于 Halpe26 的简化头部骨架和保守稳定的球拍轮廓。"""
     video_path = Path(video_path)
     body_csv = Path(body_csv)
     racket_csv = Path(racket_csv)
@@ -286,16 +323,16 @@ def render_pose_racket_video(
                 break
             frame_number += 1
             if pose_frames is not None and frame_number <= len(pose_frames):
-                body_points = _halpe26_points(
+                body_points = build_halpe26_visual_points(
                     pose_frames[frame_number - 1], body_kpt_thr
                 )
-                body_connections = HALPE26_CONNECTIONS
+                body_connections = BODY_VISUAL_CONNECTIONS
             else:
                 body_points = _body_points(body_rows.get(frame_number), body_kpt_thr)
                 body_connections = BODY_CONNECTIONS
             racket_points = racket_rows.get(frame_number, {})
 
-            # 人体：青色连线 + 黄色关节点；离线入口会绘制完整 Halpe26。
+            # 人体：青色连线 + 黄色关节点；离线入口使用 Halpe26 并简化面部。
             _draw_connections(frame, body_points, body_connections, (255, 210, 0), 3)
             for point in body_points.values():
                 cv2.circle(frame, point, 3, (0, 230, 255), -1, cv2.LINE_AA)
@@ -332,7 +369,9 @@ def render_pose_racket_video(
 
 __all__ = [
     "BODY_CONNECTIONS",
+    "BODY_VISUAL_CONNECTIONS",
     "RACKET_FACE_CONNECTIONS",
+    "build_halpe26_visual_points",
     "render_pose_racket_video",
     "stabilize_racket_visual_points",
 ]

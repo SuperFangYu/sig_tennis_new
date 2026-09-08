@@ -79,7 +79,7 @@ def run_manual_analysis(
             csv_filename=f"{stem}_racket_keypoints.csv",
         )
 
-        print("\n[3/3] 回绘完整 Halpe26 骨架与球拍轮廓视频")
+        print("\n[3/3] 回绘 Halpe26 简化面部骨架与球拍轮廓视频")
         overlay_path = render_pose_racket_video(
             video_path,
             body["csv"],
