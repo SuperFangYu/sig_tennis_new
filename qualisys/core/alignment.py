@@ -131,8 +131,8 @@ def match_repetition_peaks(
     qtm: PreparedSignal,
     *,
     expected_repetitions: int,
-    min_slope: float = 0.85,
-    max_slope: float = 1.15,
+    min_slope: float = 0.70,
+    max_slope: float = 1.40,
     max_rmse_seconds: float = 0.20,
     max_residual_seconds: float = 0.35,
 ) -> AlignmentResult:
@@ -164,7 +164,7 @@ def match_repetition_peaks(
 
     if best is None:
         raise ValidationError(
-            "候选动作峰无法得到合理的时间比例（允许 0.85–1.15）；"
+            f"候选动作峰无法得到合理的时间比例（允许 {min_slope:.2f}–{max_slope:.2f}）；"
             "请确认视频和 TSV 确为同一次采集且动作顺序一致"
         )
 

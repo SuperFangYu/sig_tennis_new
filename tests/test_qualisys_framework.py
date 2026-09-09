@@ -16,6 +16,7 @@ from qualisys.core.alignment import (
 from qualisys.core.io import create_run_directory
 from qualisys.core.metrics import align_angle_curves, calculate_angle_metrics
 from qualisys.core.qtm import build_qualisys_angles, read_qtm_3d_tsv
+from qualisys.core.runner import _select_video_time_range
 
 
 def _gaussian_speed(time: np.ndarray, peaks: list[float]) -> np.ndarray:
@@ -49,6 +50,19 @@ class QualisysFrameworkTests(unittest.TestCase):
             self.assertTrue(second.is_dir())
             self.assertNotEqual(first, second)
             self.assertEqual(first.parent, Path(temp_dir) / "forehand" / "fy_zs_1")
+
+    def test_video_time_range_keeps_absolute_video_seconds(self):
+        source = pd.DataFrame(
+            {
+                "time": np.arange(0.0, 10.1, 0.1),
+                "racket_head_speed": np.ones(101),
+            }
+        )
+        selected = _select_video_time_range(source, (2.0, 7.0))
+        self.assertAlmostEqual(float(selected["time"].iloc[0]), 2.0)
+        self.assertAlmostEqual(float(selected["time"].iloc[-1]), 7.0)
+        with self.assertRaisesRegex(ValueError, "开始秒 < 结束秒"):
+            _select_video_time_range(source, (7.0, 2.0))
 
     def test_qtm_reader_rejects_analog_export(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -92,7 +106,7 @@ class QualisysFrameworkTests(unittest.TestCase):
         profile = get_action_profile("forehand")
         video_time = np.arange(0.0, 14.0, 0.02)
         video_peaks = [1.5, 4.0, 6.5, 9.0, 11.5]
-        slope = 1.03
+        slope = 1.228
         intercept = 0.70
         qtm_time = np.arange(0.0, 16.0, 0.01)
         qtm_peaks = [slope * value + intercept for value in video_peaks]

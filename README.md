@@ -91,11 +91,11 @@ sig_tennis_new/
 
 | 文件 | 一句话说明 |
 |---|---|
-| `qualisys/actions/forehand_validation.py` | 手填三条输入路径后运行正手五次动作验证。 |
-| `qualisys/actions/backhand_validation.py` | 手填三条输入路径后运行反手五次动作验证。 |
-| `qualisys/actions/forehand_volley_validation.py` | 手填三条输入路径后运行正手截击五次动作验证。 |
-| `qualisys/actions/backhand_volley_validation.py` | 手填三条输入路径后运行反手截击五次动作验证。 |
-| `qualisys/actions/serve_validation.py` | 手填三条输入路径后运行发球五次动作验证。 |
+| `qualisys/actions/forehand_validation.py` | 手填输入路径和视频有效范围后运行正手五次动作验证。 |
+| `qualisys/actions/backhand_validation.py` | 手填输入路径和视频有效范围后运行反手五次动作验证。 |
+| `qualisys/actions/forehand_volley_validation.py` | 手填输入路径和视频有效范围后运行正手截击五次动作验证。 |
+| `qualisys/actions/backhand_volley_validation.py` | 手填输入路径和视频有效范围后运行反手截击五次动作验证。 |
+| `qualisys/actions/serve_validation.py` | 手填输入路径和视频有效范围后运行发球五次动作验证。 |
 | `qualisys/config.py` | 定义固定输入/输出目录、8 角列和 Qualisys marker 映射。 |
 | `qualisys/core/qtm.py` | 把 3D marker 投影到 ZY，生成八角与 QTM 拍头速度。 |
 | `qualisys/core/alignment.py` | 用视频/QTM 拍头速度峰自动识别并匹配五次动作。 |

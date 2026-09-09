@@ -66,12 +66,14 @@ QTM TSV 必须是 `DATA_INCLUDED=3D` 的 marker 导出，并至少包含当前�
 
 ## 在 PyCharm 中怎么用
 
-以正手为例，打开 `qualisys/actions/forehand_validation.py`，只修改顶部三条路径：
+以正手为例，打开 `qualisys/actions/forehand_validation.py`，修改顶部三条路径和视频有效范围：
 
 ```python
 VIDEO_PATH = REPO_ROOT / "qualisys/data/input/video/fy_zs_1.avi"
 RTMPOSE_CSV_PATH = REPO_ROOT / "qualisys/data/input/rtmpose/fy_zs_1.csv"
 QUALISYS_TSV_PATH = REPO_ROOT / "qualisys/data/input/qtm/fy_zs_1.tsv"
+# 原视频中只包含五次正式动作的范围
+VIDEO_TIME_RANGE = (12.0, 22.2)
 ```
 
 保持：
@@ -83,6 +85,11 @@ EXPECTED_REPETITIONS = 5
 然后右键运行该文件即可。反手、正手截击、反手截击、发球分别打开对应的另外四个入口，
 操作完全一样。路径可以写成 `Path(r"D:\...")` 绝对路径；三个文件不要求同名，但必须来自
 同一次采集、动作出现顺序一致。
+
+`VIDEO_TIME_RANGE` 填原视频上的 `(开始秒, 结束秒)`。它不需要和 Qualisys 总时长相等，也不要
+为了凑时长去调整：只按视频画面判断，完整包住五次正式动作即可。范围建议比五次动作实际边界
+略大，第一拍启动前和第五拍结束后各留约 0.5–1 秒，但不要包含前后的其他无效挥拍。Qualisys
+始终使用 TSV 全部长度，不设置相应范围。若视频本身只有五次正式动作，可填 `None`。
 
 你不需要填写五次动作的起止时间。程序会：
 
@@ -122,13 +129,17 @@ D:\FY\sig_tennis_new\qualisys\data\output\
 - 视频拍头原始有效率低于 20%；
 - QTM `Racket_top` 有效率低于 80%；
 - 任一侧找不到五个可靠速度峰；
-- 五个峰拟合出的时间比例不在 0.85–1.15；
+- 五个峰拟合出的时间比例不在 0.70–1.40；
 - 锚点 RMSE 超过 0.20 秒或单个残差超过 0.35 秒；
 - 映射后的动作窗口超出 QTM 数据范围。
 
 失败时先检查三个输入是否为同一次采集，再看球拍识别和 `Racket_top` 缺失情况。动作确实不是
 五次时才修改 `EXPECTED_REPETITIONS`；正式实验若预设为五次，不建议为了让某个坏试次通过而
 临时改阈值。第一版不使用自由 DTW，也不允许每个关节各自左右平移。
+
+时间斜率在 0.90–1.10 之外时不会直接判失败，但 `alignment_qc.csv` 会将
+`time_scale_warning` 标为 `True`。这表示视频时间轴与 QTM 时钟比例差异较大，需要结合五个
+锚点残差和质控图确认；它不会改变原始角度值。
 
 ## 当前角度定义与限制
 

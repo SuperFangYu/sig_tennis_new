@@ -83,12 +83,36 @@ def _angle_valid_percent(data: pd.DataFrame) -> float:
     return float(np.mean(np.isfinite(values)) * 100.0)
 
 
+def _select_video_time_range(
+    data: pd.DataFrame,
+    video_time_range: tuple[float, float] | None,
+) -> pd.DataFrame:
+    """仅限制视频侧候选动作搜索范围；保留原视频绝对秒数。"""
+    if video_time_range is None:
+        return data.copy().reset_index(drop=True)
+    if not isinstance(video_time_range, (tuple, list)) or len(video_time_range) != 2:
+        raise ValueError("VIDEO_TIME_RANGE 必须是 (开始秒, 结束秒)，例如 (12.0, 22.2)")
+    start, end = (float(value) for value in video_time_range)
+    duration = float(data["time"].iloc[-1])
+    if not np.isfinite(start) or not np.isfinite(end) or start < 0 or end <= start:
+        raise ValueError("VIDEO_TIME_RANGE 必须满足 0 <= 开始秒 < 结束秒")
+    if start >= duration or end > duration + 1e-6:
+        raise ValueError(
+            f"VIDEO_TIME_RANGE={video_time_range} 超出视频时长 {duration:.3f} 秒"
+        )
+    selected = data[(data["time"] >= start) & (data["time"] <= end)].copy()
+    if len(selected) < 5:
+        raise ValidationError("VIDEO_TIME_RANGE 内有效视频帧不足 5 帧")
+    return selected.reset_index(drop=True)
+
+
 def run_validation_job(
     *,
     action: str,
     video_path: Path | str,
     rtmpose_csv_path: Path | str,
     qualisys_tsv_path: Path | str,
+    video_time_range: tuple[float, float] | None = None,
     expected_repetitions: int = 5,
     output_root: Path = OUTPUT_ROOT,
 ) -> dict[str, str]:
@@ -114,6 +138,7 @@ def run_validation_job(
         "video_path": str(video_path.resolve()),
         "rtmpose_csv_path": str(rtmpose_csv_path.resolve()),
         "qualisys_tsv_path": str(qualisys_tsv_path.resolve()),
+        "video_time_range_seconds": video_time_range,
         "expected_repetitions": expected_repetitions,
         "output_dir": str(output_dir.resolve()),
         "alignment_anchor": "racket_speed_peak (not ball contact)",
@@ -128,6 +153,12 @@ def run_validation_job(
         qualisys = build_qualisys_angles(qtm_raw)
         qtm_racket = build_qtm_racket_signal(qtm_raw)
         video_racket = _run_video_racket_tracking(video_path, output_dir)
+        video_racket = _select_video_time_range(video_racket, video_time_range)
+        if video_time_range is not None:
+            print(
+                f"🎯 自动对齐仅使用视频 {video_time_range[0]:.3f}–"
+                f"{video_time_range[1]:.3f} 秒；Qualisys 使用全部长度"
+            )
 
         raw_video_valid = np.isfinite(
             video_racket[["t_x_raw", "t_y_raw"]].to_numpy(dtype=float)
@@ -220,6 +251,7 @@ def run_validation_job(
                     "video_candidate_peaks": len(video_prepared.candidate_indices),
                     "qualisys_candidate_peaks": len(qtm_prepared.candidate_indices),
                     "slope": alignment.slope,
+                    "time_scale_warning": not 0.90 <= alignment.slope <= 1.10,
                     "intercept_seconds": alignment.intercept,
                     "anchor_rmse_seconds": alignment.rmse_seconds,
                     "anchor_max_abs_residual_seconds": alignment.max_abs_residual_seconds,
@@ -268,4 +300,4 @@ def run_validation_job(
     }
 
 
-__all__ = ["run_validation_job"]
+__all__ = ["_select_video_time_range", "run_validation_job"]
