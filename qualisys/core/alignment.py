@@ -24,6 +24,8 @@ class PreparedSignal:
 
 @dataclass(frozen=True)
 class AlignmentResult:
+    """五个对应球拍事件及其连续分段线性时间映射。"""
+
     slope: float
     intercept: float
     rmse_seconds: float
@@ -31,6 +33,7 @@ class AlignmentResult:
     video_peak_indices: np.ndarray
     qtm_peak_indices: np.ndarray
     anchors: pd.DataFrame
+    segments: pd.DataFrame
 
 
 def _odd_window(sample_count: int, requested: int) -> int:
@@ -131,20 +134,41 @@ def match_repetition_peaks(
     qtm: PreparedSignal,
     *,
     expected_repetitions: int,
+    fixed_video_peak_indices: Iterable[int] | None = None,
     min_slope: float = 0.70,
     max_slope: float = 1.40,
-    max_rmse_seconds: float = 0.20,
-    max_residual_seconds: float = 0.35,
 ) -> AlignmentResult:
-    """按时间顺序搜索两侧候选峰组合，并拟合一个全局仿射时间映射。"""
+    """匹配顺序一致的球拍峰，并建立通过五个锚点的分段线性时间映射。"""
     video_time = video.frame["time"].to_numpy(dtype=float)
     qtm_time = qtm.frame["time"].to_numpy(dtype=float)
     best: tuple[float, np.ndarray, np.ndarray, float, float, np.ndarray] | None = None
 
-    for video_combo in combinations(video.candidate_indices.tolist(), expected_repetitions):
+    if fixed_video_peak_indices is None:
+        video_combos: Iterable[tuple[int, ...]] = combinations(
+            video.candidate_indices.tolist(), expected_repetitions
+        )
+    else:
+        fixed = np.asarray(list(fixed_video_peak_indices), dtype=int)
+        if len(fixed) != expected_repetitions:
+            raise ValueError(
+                "手动视频峰数量必须与 expected_repetitions 一致："
+                f"收到 {len(fixed)} 个，预期 {expected_repetitions} 个"
+            )
+        if np.any(fixed < 0) or np.any(fixed >= len(video_time)):
+            raise ValueError("手动视频峰索引超出速度序列范围")
+        if np.any(np.diff(fixed) <= 0):
+            raise ValueError("手动视频峰必须按时间严格递增且不能重复")
+        video_combos = [tuple(int(value) for value in fixed)]
+
+    for video_combo in video_combos:
         vt = video_time[np.asarray(video_combo, dtype=int)]
         for qtm_combo in combinations(qtm.candidate_indices.tolist(), expected_repetitions):
             qt = qtm_time[np.asarray(qtm_combo, dtype=int)]
+            local_slopes = np.diff(qt) / np.diff(vt)
+            if np.any(~np.isfinite(local_slopes)) or np.any(
+                (local_slopes < min_slope) | (local_slopes > max_slope)
+            ):
+                continue
             slope, intercept = np.polyfit(vt, qt, 1)
             if not min_slope <= slope <= max_slope:
                 continue
@@ -164,19 +188,13 @@ def match_repetition_peaks(
 
     if best is None:
         raise ValidationError(
-            f"候选动作峰无法得到合理的时间比例（允许 {min_slope:.2f}–{max_slope:.2f}）；"
+            f"候选动作峰无法得到单调且合理的分段时间比例（允许 {min_slope:.2f}–{max_slope:.2f}）；"
             "请确认视频和 TSV 确为同一次采集且动作顺序一致"
         )
 
     _, video_indices, qtm_indices, slope, intercept, residual = best
     rmse = float(np.sqrt(np.mean(np.square(residual))))
     max_residual = float(np.max(np.abs(residual)))
-    if rmse > max_rmse_seconds or max_residual > max_residual_seconds:
-        raise ValidationError(
-            f"自动对齐未通过质控：锚点 RMSE={rmse:.3f}s，"
-            f"最大残差={max_residual:.3f}s；请检查五次动作是否均被正确识别"
-        )
-
     vt = video_time[video_indices]
     qt = qtm_time[qtm_indices]
     predicted = slope * vt + intercept
@@ -187,6 +205,20 @@ def match_repetition_peaks(
             "qualisys_anchor_time": qt,
             "qualisys_predicted_time": predicted,
             "anchor_residual_seconds": qt - predicted,
+            "piecewise_mapped_time": qt,
+            "piecewise_residual_seconds": np.zeros(len(qt), dtype=float),
+        }
+    )
+    local_slopes = np.diff(qt) / np.diff(vt)
+    segments = pd.DataFrame(
+        {
+            "segment": np.arange(1, len(vt)),
+            "video_start_anchor_time": vt[:-1],
+            "video_end_anchor_time": vt[1:],
+            "qualisys_start_anchor_time": qt[:-1],
+            "qualisys_end_anchor_time": qt[1:],
+            "local_slope": local_slopes,
+            "local_intercept_seconds": qt[:-1] - local_slopes * vt[:-1],
         }
     )
     return AlignmentResult(
@@ -197,7 +229,66 @@ def match_repetition_peaks(
         video_peak_indices=video_indices,
         qtm_peak_indices=qtm_indices,
         anchors=anchors,
+        segments=segments,
     )
+
+
+def map_video_times_to_qualisys(
+    video_times: Iterable[float] | np.ndarray,
+    alignment: AlignmentResult,
+) -> np.ndarray:
+    """用锚点间线性插值映射时间，首尾使用相邻分段斜率外推。"""
+    target = np.asarray(list(video_times), dtype=np.float64)
+    video_anchors = alignment.anchors["video_anchor_time"].to_numpy(dtype=float)
+    qtm_anchors = alignment.anchors["qualisys_anchor_time"].to_numpy(dtype=float)
+    if len(video_anchors) < 2 or len(video_anchors) != len(qtm_anchors):
+        raise ValueError("分段时间映射至少需要两个数量相同的对应锚点")
+    if np.any(np.diff(video_anchors) <= 0) or np.any(np.diff(qtm_anchors) <= 0):
+        raise ValueError("分段时间映射锚点必须严格递增")
+
+    mapped = np.interp(target, video_anchors, qtm_anchors)
+    local_slopes = np.diff(qtm_anchors) / np.diff(video_anchors)
+    before = target < video_anchors[0]
+    after = target > video_anchors[-1]
+    mapped[before] = qtm_anchors[0] + local_slopes[0] * (
+        target[before] - video_anchors[0]
+    )
+    mapped[after] = qtm_anchors[-1] + local_slopes[-1] * (
+        target[after] - video_anchors[-1]
+    )
+    return mapped
+
+
+def select_repetition_peaks_in_ranges(
+    prepared: PreparedSignal,
+    repetition_ranges: Iterable[tuple[float, float]],
+) -> np.ndarray:
+    """在人工指定的每个完整动作时间段内选择一个拍头速度最高点。"""
+    time = prepared.frame["time"].to_numpy(dtype=float)
+    speed = prepared.frame["speed_normalized"].to_numpy(dtype=float)
+    selected: list[int] = []
+
+    for repetition, (start, end) in enumerate(repetition_ranges, start=1):
+        indices = np.flatnonzero((time >= float(start)) & (time <= float(end)))
+        if len(indices) < 3:
+            raise ValidationError(
+                f"第 {repetition} 次手动动作范围 {start:.3f}–{end:.3f}s 内有效速度点不足 3 个"
+            )
+        local_speed = speed[indices]
+        if not np.any(np.isfinite(local_speed)):
+            raise ValidationError(f"第 {repetition} 次手动动作范围内没有有效拍头速度")
+        peak = int(indices[int(np.nanargmax(local_speed))])
+        if peak == int(indices[0]) or peak == int(indices[-1]):
+            raise ValidationError(
+                f"第 {repetition} 次动作的速度最高点落在手动范围边界；"
+                "请适当扩大该动作的开始/结束时间"
+            )
+        selected.append(peak)
+
+    result = np.asarray(selected, dtype=int)
+    if np.any(np.diff(result) <= 0):
+        raise ValueError("手动动作范围必须按视频时间严格递增且互不重叠")
+    return result
 
 
 def derive_repetition_windows(
@@ -240,15 +331,56 @@ def derive_repetition_windows(
         end = min(float(time[right]), right_limit_time, float(time[-1]))
         if end - start < 0.20:
             raise ValidationError(f"第 {order + 1} 次动作窗口短于 0.20 秒，自动切分不可靠")
+        mapped = map_video_times_to_qualisys(
+            np.asarray([start, peak_time, end], dtype=float),
+            alignment,
+        )
         rows.append(
             {
                 "repetition": order + 1,
                 "video_start_time": start,
                 "video_anchor_time": peak_time,
                 "video_end_time": end,
-                "qualisys_start_time": alignment.slope * start + alignment.intercept,
-                "qualisys_anchor_time_mapped": alignment.slope * peak_time + alignment.intercept,
-                "qualisys_end_time": alignment.slope * end + alignment.intercept,
+                "qualisys_start_time": float(mapped[0]),
+                "qualisys_anchor_time_mapped": float(mapped[1]),
+                "qualisys_end_time": float(mapped[2]),
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def derive_manual_repetition_windows(
+    repetition_ranges: Iterable[tuple[float, float]],
+    alignment: AlignmentResult,
+) -> pd.DataFrame:
+    """使用人工填写的完整动作边界，并用统一时间映射生成 Qualisys 边界。"""
+    ranges = list(repetition_ranges)
+    if len(ranges) != len(alignment.video_peak_indices):
+        raise ValueError("手动动作范围数量必须与已对齐的视频峰数量一致")
+
+    video_time = alignment.anchors["video_anchor_time"].to_numpy(dtype=float)
+    rows: list[dict[str, float | int]] = []
+    for repetition, ((start, end), anchor_time) in enumerate(
+        zip(ranges, video_time, strict=True), start=1
+    ):
+        if not float(start) < float(anchor_time) < float(end):
+            raise ValidationError(
+                f"第 {repetition} 次视频锚点 {anchor_time:.3f}s 不在手动动作范围 "
+                f"{start:.3f}–{end:.3f}s 内"
+            )
+        mapped = map_video_times_to_qualisys(
+            np.asarray([start, anchor_time, end], dtype=float),
+            alignment,
+        )
+        rows.append(
+            {
+                "repetition": repetition,
+                "video_start_time": float(start),
+                "video_anchor_time": float(anchor_time),
+                "video_end_time": float(end),
+                "qualisys_start_time": float(mapped[0]),
+                "qualisys_anchor_time_mapped": float(mapped[1]),
+                "qualisys_end_time": float(mapped[2]),
             }
         )
     return pd.DataFrame(rows)
@@ -271,7 +403,10 @@ __all__ = [
     "AlignmentResult",
     "PreparedSignal",
     "add_peak_labels",
+    "derive_manual_repetition_windows",
     "derive_repetition_windows",
     "match_repetition_peaks",
+    "map_video_times_to_qualisys",
     "prepare_speed_signal",
+    "select_repetition_peaks_in_ranges",
 ]

@@ -20,9 +20,11 @@ from qualisys.config import (
 from qualisys.core.action_profiles import get_action_profile
 from qualisys.core.alignment import (
     add_peak_labels,
+    derive_manual_repetition_windows,
     derive_repetition_windows,
     match_repetition_peaks,
     prepare_speed_signal,
+    select_repetition_peaks_in_ranges,
 )
 from qualisys.core.io import (
     ValidationError,
@@ -106,6 +108,45 @@ def _select_video_time_range(
     return selected.reset_index(drop=True)
 
 
+def _validate_video_repetition_ranges(
+    data: pd.DataFrame,
+    video_repetition_ranges: tuple[tuple[float, float], ...] | list[tuple[float, float]],
+    *,
+    expected_repetitions: int,
+) -> tuple[tuple[float, float], ...]:
+    """校验人工填写的逐次视频动作范围，返回规范化的秒数元组。"""
+    if not isinstance(video_repetition_ranges, (tuple, list)):
+        raise ValueError("VIDEO_REPETITION_RANGES 必须是五个 (开始秒, 结束秒)")
+    if len(video_repetition_ranges) != expected_repetitions:
+        raise ValueError(
+            "VIDEO_REPETITION_RANGES 数量必须与 EXPECTED_REPETITIONS 一致："
+            f"收到 {len(video_repetition_ranges)} 段，预期 {expected_repetitions} 段"
+        )
+
+    duration = float(data["time"].iloc[-1])
+    normalized: list[tuple[float, float]] = []
+    previous_end = -np.inf
+    for repetition, value in enumerate(video_repetition_ranges, start=1):
+        if not isinstance(value, (tuple, list)) or len(value) != 2:
+            raise ValueError(f"第 {repetition} 次动作必须填写为 (开始秒, 结束秒)")
+        start, end = (float(item) for item in value)
+        if not np.isfinite(start) or not np.isfinite(end) or start < 0 or end <= start:
+            raise ValueError(f"第 {repetition} 次动作必须满足 0 <= 开始秒 < 结束秒")
+        if end - start < 0.20:
+            raise ValueError(f"第 {repetition} 次动作范围短于 0.20 秒")
+        if start < previous_end:
+            raise ValueError("VIDEO_REPETITION_RANGES 必须按时间递增且不能重叠")
+        if end > duration + 1e-6:
+            raise ValueError(
+                f"第 {repetition} 次动作结束时间 {end:.3f}s 超出视频时长 {duration:.3f}s"
+            )
+        if len(data[(data["time"] >= start) & (data["time"] <= end)]) < 5:
+            raise ValidationError(f"第 {repetition} 次手动动作范围内视频帧不足 5 帧")
+        normalized.append((start, end))
+        previous_end = end
+    return tuple(normalized)
+
+
 def run_validation_job(
     *,
     action: str,
@@ -113,14 +154,22 @@ def run_validation_job(
     rtmpose_csv_path: Path | str,
     qualisys_tsv_path: Path | str,
     video_time_range: tuple[float, float] | None = None,
+    video_repetition_ranges: tuple[tuple[float, float], ...]
+    | list[tuple[float, float]]
+    | None = None,
     expected_repetitions: int = 5,
     output_root: Path = OUTPUT_ROOT,
 ) -> dict[str, str]:
-    """自动建立新目录、识别五次动作、对齐八角并生成信效度描述指标。"""
+    """建立新目录，按自动或手动逐次模式对齐八角并生成描述指标。"""
     if action not in SUPPORTED_ACTIONS:
         raise ValueError(f"不支持的动作: {action}")
     if expected_repetitions < 2:
         raise ValueError("expected_repetitions 至少为 2；本实验默认且建议保持 5")
+    if video_time_range is not None and video_repetition_ranges is not None:
+        raise ValueError(
+            "VIDEO_TIME_RANGE 与 VIDEO_REPETITION_RANGES 不能同时填写；"
+            "手动逐次模式请将 VIDEO_TIME_RANGE 设为 None"
+        )
 
     video_path = validate_input_file(video_path, "视频")
     rtmpose_csv_path = validate_input_file(rtmpose_csv_path, "RTMPose 八角 CSV")
@@ -139,10 +188,15 @@ def run_validation_job(
         "rtmpose_csv_path": str(rtmpose_csv_path.resolve()),
         "qualisys_tsv_path": str(qualisys_tsv_path.resolve()),
         "video_time_range_seconds": video_time_range,
+        "video_repetition_ranges_seconds": video_repetition_ranges,
+        "repetition_selection_mode": (
+            "manual_video_ranges" if video_repetition_ranges is not None else "automatic"
+        ),
         "expected_repetitions": expected_repetitions,
         "output_dir": str(output_dir.resolve()),
-        "alignment_anchor": "racket_speed_peak (not ball contact)",
-        "time_map": "t_qualisys = slope * t_video + intercept",
+        "alignment_anchor": "five racket_speed_peaks (not ball contact)",
+        "time_map": "piecewise linear through five paired racket-speed anchors",
+        "alignment_method": "piecewise_linear_racket_anchors",
         "action_profile": asdict(profile),
     }
     write_json(output_dir / "run_status.json", config_payload)
@@ -153,7 +207,23 @@ def run_validation_job(
         qualisys = build_qualisys_angles(qtm_raw)
         qtm_racket = build_qtm_racket_signal(qtm_raw)
         video_racket = _run_video_racket_tracking(video_path, output_dir)
-        video_racket = _select_video_time_range(video_racket, video_time_range)
+        normalized_repetition_ranges = None
+        if video_repetition_ranges is not None:
+            normalized_repetition_ranges = _validate_video_repetition_ranges(
+                video_racket,
+                video_repetition_ranges,
+                expected_repetitions=expected_repetitions,
+            )
+            video_racket = _select_video_time_range(
+                video_racket,
+                (normalized_repetition_ranges[0][0], normalized_repetition_ranges[-1][1]),
+            )
+            print(
+                f"🎯 发球使用 {expected_repetitions} 个手动视频动作范围；"
+                "每段内自动选择拍头速度最高点"
+            )
+        else:
+            video_racket = _select_video_time_range(video_racket, video_time_range)
         if video_time_range is not None:
             print(
                 f"🎯 自动对齐仅使用视频 {video_time_range[0]:.3f}–"
@@ -187,26 +257,41 @@ def run_validation_job(
             profile=profile,
             expected_repetitions=expected_repetitions,
         )
+        fixed_video_peak_indices = None
+        if normalized_repetition_ranges is not None:
+            fixed_video_peak_indices = select_repetition_peaks_in_ranges(
+                video_prepared,
+                normalized_repetition_ranges,
+            )
+            config_payload["video_anchor_times_seconds"] = video_prepared.frame.loc[
+                fixed_video_peak_indices, "time"
+            ].tolist()
+            write_json(output_dir / "run_status.json", config_payload)
         alignment = match_repetition_peaks(
             video_prepared,
             qtm_prepared,
             expected_repetitions=expected_repetitions,
+            fixed_video_peak_indices=fixed_video_peak_indices,
         )
-        windows = derive_repetition_windows(video_prepared, alignment, profile=profile)
+        if normalized_repetition_ranges is None:
+            windows = derive_repetition_windows(video_prepared, alignment, profile=profile)
+        else:
+            windows = derive_manual_repetition_windows(
+                normalized_repetition_ranges,
+                alignment,
+            )
         aligned = align_angle_curves(
             rtmpose,
             qualisys,
             windows,
-            slope=alignment.slope,
-            intercept=alignment.intercept,
+            alignment=alignment,
         )
         metrics = calculate_angle_metrics(aligned)
         anchor_angles = calculate_anchor_angle_errors(
             rtmpose,
             qualisys,
             alignment.anchors,
-            slope=alignment.slope,
-            intercept=alignment.intercept,
+            alignment=alignment,
         )
 
         video_signal = add_peak_labels(video_prepared, alignment.video_peak_indices)
@@ -237,6 +322,7 @@ def run_validation_job(
         _csv(compact_qtm, output_dir / "qualisys_racket_alignment.csv")
         _csv(qualisys, output_dir / "qualisys_8_angles.csv")
         _csv(alignment.anchors, output_dir / "alignment_anchors.csv")
+        _csv(alignment.segments, output_dir / "alignment_segments.csv")
         _csv(windows, output_dir / "repetition_windows.csv")
         _csv(aligned, output_dir / "aligned_angles.csv")
         _csv(metrics, output_dir / "angle_metrics.csv")
@@ -247,14 +333,32 @@ def run_validation_job(
                 {
                     "status": "pass",
                     "action": action,
+                    "alignment_method": "piecewise_linear_racket_anchors",
+                    "repetition_selection_mode": (
+                        "manual_video_ranges"
+                        if normalized_repetition_ranges is not None
+                        else "automatic"
+                    ),
                     "expected_repetitions": expected_repetitions,
                     "video_candidate_peaks": len(video_prepared.candidate_indices),
                     "qualisys_candidate_peaks": len(qtm_prepared.candidate_indices),
+                    "global_affine_only_diagnostic": True,
                     "slope": alignment.slope,
-                    "time_scale_warning": not 0.90 <= alignment.slope <= 1.10,
+                    "time_scale_warning": bool(
+                        np.any(
+                            (alignment.segments["local_slope"].to_numpy(float) < 0.90)
+                            | (alignment.segments["local_slope"].to_numpy(float) > 1.10)
+                        )
+                    ),
                     "intercept_seconds": alignment.intercept,
                     "anchor_rmse_seconds": alignment.rmse_seconds,
                     "anchor_max_abs_residual_seconds": alignment.max_abs_residual_seconds,
+                    "global_affine_fit_warning": (
+                        alignment.rmse_seconds > 0.20
+                        or alignment.max_abs_residual_seconds > 0.35
+                    ),
+                    "local_slope_min": float(alignment.segments["local_slope"].min()),
+                    "local_slope_max": float(alignment.segments["local_slope"].max()),
                     "video_racket_raw_valid_percent": video_tracking_valid_percent,
                     "qualisys_racket_valid_percent": qtm_tracking_valid_percent,
                     "rtmpose_angle_valid_percent": _angle_valid_percent(rtmpose),
@@ -277,6 +381,19 @@ def run_validation_job(
                 "slope": alignment.slope,
                 "intercept_seconds": alignment.intercept,
                 "anchor_rmse_seconds": alignment.rmse_seconds,
+                "anchor_max_abs_residual_seconds": alignment.max_abs_residual_seconds,
+                "global_affine_only_diagnostic": True,
+                "global_affine_fit_warning": (
+                    alignment.rmse_seconds > 0.20
+                    or alignment.max_abs_residual_seconds > 0.35
+                ),
+                "local_slopes": alignment.segments["local_slope"].tolist(),
+                "video_anchor_times_seconds": alignment.anchors[
+                    "video_anchor_time"
+                ].tolist(),
+                "qualisys_anchor_times_seconds": alignment.anchors[
+                    "qualisys_anchor_time"
+                ].tolist(),
             }
         )
         write_json(output_dir / "run_status.json", config_payload)
@@ -300,4 +417,8 @@ def run_validation_job(
     }
 
 
-__all__ = ["_select_video_time_range", "run_validation_job"]
+__all__ = [
+    "_select_video_time_range",
+    "_validate_video_repetition_ranges",
+    "run_validation_job",
+]

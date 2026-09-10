@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from qualisys.config import ANGLE_COLUMNS
+from qualisys.core.alignment import AlignmentResult, map_video_times_to_qualisys
 from qualisys.core.io import ValidationError
 
 
@@ -42,10 +43,9 @@ def align_angle_curves(
     qualisys: pd.DataFrame,
     windows: pd.DataFrame,
     *,
-    slope: float,
-    intercept: float,
+    alignment: AlignmentResult,
 ) -> pd.DataFrame:
-    """五次动作和八个角严格共用同一个 ``t_q=a*t_video+b``。"""
+    """五次动作和八个角严格共用同一个连续分段时间映射。"""
     q_min = float(qualisys["time"].min())
     q_max = float(qualisys["time"].max())
     if (
@@ -63,7 +63,7 @@ def align_angle_curves(
         if len(segment) < 2:
             raise ValidationError(f"第 {row.repetition} 次动作内的 RTMPose 数据不足")
         video_time = segment["time"].to_numpy(dtype=float)
-        qtm_time = slope * video_time + intercept
+        qtm_time = map_video_times_to_qualisys(video_time, alignment)
         aligned = pd.DataFrame(
             {
                 "repetition": int(row.repetition),
@@ -150,15 +150,19 @@ def calculate_anchor_angle_errors(
     qualisys: pd.DataFrame,
     anchors: pd.DataFrame,
     *,
-    slope: float,
-    intercept: float,
+    alignment: AlignmentResult,
 ) -> pd.DataFrame:
     """输出拍头速度锚点处的角度误差；锚点不是触球帧。"""
     rows: list[dict[str, object]] = []
     video_time = rtmpose["time"].to_numpy(dtype=float)
     for anchor in anchors.itertuples(index=False):
         index = int(np.argmin(np.abs(video_time - anchor.video_anchor_time)))
-        mapped_time = slope * float(video_time[index]) + intercept
+        mapped_time = float(
+            map_video_times_to_qualisys(
+                np.asarray([video_time[index]], dtype=float),
+                alignment,
+            )[0]
+        )
         for angle in ANGLE_COLUMNS:
             estimate = float(rtmpose.iloc[index][angle])
             reference = float(interpolate_column(qualisys, angle, np.array([mapped_time]))[0])
